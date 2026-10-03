@@ -80,12 +80,14 @@ void UpdateAndDrawSnow() {
     }
 }
 
-// Ватермарка
+// Ватермарка (popup kecil) - sekarang bisa digeser
 void watqermark() {
     float sc = menuscale::menuscale;
     float padding = 10.0f * sc;
-    float x = 20.0f * sc;
-    float y = 16.0f * sc;
+
+    static ImVec2 s_WmPos(-1.0f, -1.0f);
+    static bool s_WmMoved = false;
+    if (s_WmPos.x < 0.0f) s_WmPos = ImVec2(20.0f * sc, 16.0f * sc);
 
     std::time_t now = std::time(nullptr);
     std::tm* lt = std::localtime(&now);
@@ -97,21 +99,37 @@ void watqermark() {
     snprintf(buffer, sizeof(buffer), "chuvashi.win | tg @chuvashi_win | %s", time_str);
 
     ImVec2 text_size = ImGui::CalcTextSize(buffer);
+    ImVec2 boxSize = ImVec2(text_size.x + padding * 2, text_size.y + padding * 2);
+
+    // Jaga agar tidak keluar layar
+    ImVec2 dispSize = ImGui::GetIO().DisplaySize;
+    s_WmPos.x = ImClamp(s_WmPos.x, 0.0f, ImMax(0.0f, dispSize.x - boxSize.x));
+    s_WmPos.y = ImClamp(s_WmPos.y, 0.0f, ImMax(0.0f, dispSize.y - boxSize.y));
+
+    float x = s_WmPos.x;
+    float y = s_WmPos.y;
     ImVec2 bg_min = ImVec2(x, y);
-    ImVec2 bg_max = ImVec2(x + text_size.x + padding * 2, y + text_size.y + padding * 2);
+    ImVec2 bg_max = ImVec2(x + boxSize.x, y + boxSize.y);
 
     ImGui::SetNextWindowPos(bg_min);
-    ImGui::SetNextWindowSize(ImVec2(bg_max.x - bg_min.x, bg_max.y - bg_min.y));
+    ImGui::SetNextWindowSize(boxSize);
     ImGui::Begin("##wm_click_main", nullptr,
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
-    if (ImGui::InvisibleButton("##wm_btn", ImVec2(bg_max.x - bg_min.x, bg_max.y - bg_min.y))) {
+    bool pressed = ImGui::InvisibleButton("##wm_btn", boxSize);
+    // Geser: tahan lalu seret. Tap singkat tetap membuka/menutup menu.
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 8.0f * sc)) {
+        s_WmPos += ImGui::GetIO().MouseDelta;
+        s_WmMoved = true;
+    }
+    if (pressed && !s_WmMoved) {
         g_ShowMenu = !g_ShowMenu;
     }
+    if (!ImGui::IsMouseDown(0)) s_WmMoved = false;
     ImGui::End();
 
     ImDrawList* draw = ImGui::GetForegroundDrawList();
-    draw->AddRectFilled(bg_min, bg_max, IM_COL32(14, 14, 18, 240), 6.0f * sc);
-    draw->AddRect(bg_min, bg_max, g_ShowMenu ? ImGui::GetColorU32(c::accent) : IM_COL32(60, 60, 80, 255), 6.0f * sc);
+    draw->AddRectFilled(bg_min, bg_max, IM_COL32(0, 0, 0, 240), 6.0f * sc);
+    draw->AddRect(bg_min, bg_max, g_ShowMenu ? ImGui::GetColorU32(c::accent) : IM_COL32(45, 45, 45, 255), 6.0f * sc);
     draw->AddText(ImVec2(x + padding, y + padding), IM_COL32(230, 230, 245, 255), buffer);
 }
 
@@ -208,6 +226,8 @@ void DrawMenu() {
     ImGuiIO& io = ImGui::GetIO();
     float dt = io.DeltaTime;
 
+    config::AutoSaveTick();  // simpan otomatis jika pengaturan berubah
+
     static float menuAnimAlpha = 0.0f;
     static float menuScaleAnim = 0.0f;
     menuAnimAlpha = ImLerp(menuAnimAlpha, g_ShowMenu ? 1.0f : 0.0f, dt * 10.0f);
@@ -239,6 +259,12 @@ void DrawMenu() {
     ImGui::SetNextWindowSize(winSize);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, menuAnimAlpha);
 
+    // Tema hitam
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.02f, 0.02f, 0.02f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.02f, 0.02f, 0.02f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
+
     ImGui::Begin("chuvashi_main", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize);
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -247,8 +273,8 @@ void DrawMenu() {
 
     // Разделитель сайдбара
     float sidebarW = 220.0f * menuscale::menuscale;
-    draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(28, 28, 34, 255));
-    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 44.0f * menuscale::menuscale), IM_COL32(16, 16, 20, 255), 6, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
+    draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(30, 30, 30, 255));
+    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 44.0f * menuscale::menuscale), IM_COL32(0, 0, 0, 255), 6, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
 
     // Заголовок chuvashi
     ImVec2 tSz = ImGui::CalcTextSize("chuvashi");
@@ -281,7 +307,7 @@ void DrawMenu() {
     draw->AddRectFilled(
         ImVec2(pos.x + tabBgAnim.value.x, pos.y + tabBgAnim.value.y),
         ImVec2(pos.x + tabBgAnim.value.x + tabSz.x, pos.y + tabBgAnim.value.y + tabSz.y),
-        IM_COL32(22, 22, 28, 255), 6.0f
+        IM_COL32(20, 20, 20, 255), 6.0f
     );
     draw->AddRect(
         ImVec2(pos.x + tabBgAnim.value.x, pos.y + tabBgAnim.value.y),
@@ -487,6 +513,7 @@ void DrawMenu() {
 
         ImGui::InputTextWithHint("##cfgin", "name...", config::currentConfigName, sizeof(config::currentConfigName));
         if (edited::buttonn("Save Config", ImVec2(-1, 40 * menuscale::menuscale))) config::SaveConfig(config::currentConfigName);
+        if (edited::buttonn("Load Config", ImVec2(-1, 40 * menuscale::menuscale))) config::LoadConfig(config::currentConfigName);
         if (edited::buttonn("Open in ZArchiver", ImVec2(-1, 40 * menuscale::menuscale))) OpenFolderInExternalFileManager("/sdcard/Kahanium/");
         ImGui::EndChild();
 
@@ -539,5 +566,6 @@ void DrawMenu() {
     else if (activeTab == 7 && g_DevModeUnlocked) Logger::DrawTab();
 
     ImGui::End();
+    ImGui::PopStyleColor(4);
     ImGui::PopStyleVar();
 }
