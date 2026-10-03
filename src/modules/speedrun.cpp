@@ -22,7 +22,16 @@ namespace speedrun {
     float restartPosX = -1.0f;
     float restartPosY = -1.0f;
 
+    int  ratChoice = 0;
+    int  momRoute = 0;
+    int  vaseChoice = 0;
+    int  vaseCount = 0;
+    bool extraTraps = false;
+    bool lavaMode = false;
+
     static bool s_AutoDone = false;
+    static bool s_Applied = false;
+    static float s_InGameTimer = 0.0f;
     static std::string s_Status = "";
     static std::string s_DumpStatus = "";
     static std::string s_SceneName = "";
@@ -30,6 +39,8 @@ namespace speedrun {
 
     void ClearCache() {
         s_AutoDone = false;
+        s_Applied = false;
+        s_InGameTimer = 0.0f;
         s_SceneName.clear();
         s_SceneTimer = 0.0f;
     }
@@ -88,23 +99,189 @@ namespace speedrun {
     }
 
     // ==============================================================
-    // 2. TOMBOL RESTART MENGAMBANG
+    // HELPER AKSES OBJEK/FIELD IL2CPP
     // ==============================================================
+    static void* TypeObjOf(const char* cls) {
+        void* k = FindClass("", cls);
+        if (!k || !il2cpp_class_get_type || !il2cpp_type_get_object) return nullptr;
+        return il2cpp_type_get_object(il2cpp_class_get_type(k));
+    }
+
+    static void* FirstInstance(const char* cls) {
+        void* t = TypeObjOf(cls);
+        if (!t) return nullptr;
+        std::vector<void*> v = FindObjectsOfUnityType(t);
+        for (void* o : v) if (o && IsNativeObjectAlive(o)) return o;
+        return nullptr;
+    }
+
+    static size_t FieldOff(const char* cls, const char* field) {
+        void* k = FindClass("", cls);
+        if (!k || !il2cpp_class_get_field_from_name || !il2cpp_field_get_offset) return 0;
+        void* f = il2cpp_class_get_field_from_name(k, field);
+        return f ? il2cpp_field_get_offset(f) : 0;
+    }
+
+    static void* ReadPtr(void* obj, const char* cls, const char* field) {
+        size_t off = FieldOff(cls, field);
+        if (!obj || !off) return nullptr;
+        return *(void**)((uintptr_t)obj + off);
+    }
+
+    static bool WritePtr(void* obj, const char* cls, const char* field, void* value) {
+        size_t off = FieldOff(cls, field);
+        if (!obj || !off) return false;
+        *(void**)((uintptr_t)obj + off) = value;
+        return true;
+    }
+
+    static bool WriteBool(void* obj, const char* cls, const char* field, bool value) {
+        size_t off = FieldOff(cls, field);
+        if (!obj || !off) return false;
+        *(uint8_t*)((uintptr_t)obj + off) = value ? 1 : 0;
+        return true;
+    }
+
+    static bool Alive(void* o) { return o && IsNativeObjectAlive(o); }
+
+    // ==============================================================
+    // 2. KONTROL RNG + EKSTRA (diterapkan sekali setelah run dimulai)
+    // ==============================================================
+    static void ApplyRat(void* om) {
+        if (ratChoice < 1 || ratChoice > 2) return;
+        void* r1 = ReadPtr(om, "ObjectsManager", "RemoteRatHang1");
+        void* r2 = ReadPtr(om, "ObjectsManager", "RemoteRatHang2");
+        if (!Alive(r1) || !Alive(r2)) {
+            Logger::Log("SPEEDRUN", LOG_WARN, "Remote rat: RemoteRatHang1/2 tidak ditemukan.");
+            return;
+        }
+        WriteBool(r1, "RemoteRat", "TheOne", ratChoice == 1);
+        WriteBool(r2, "RemoteRat", "TheOne", ratChoice == 2);
+        Logger::Log("SPEEDRUN", LOG_OK, "Remote rat TheOne -> RemoteRatHang%d", ratChoice);
+    }
+
+    static void ApplyVase(void* om) {
+        void* arr = ReadPtr(om, "ObjectsManager", "VasePositionsGrandpa");
+        if (!arr) return;
+        int len = (int)*(uint64_t*)((uintptr_t)arr + 0x18);
+        if (len > 0) vaseCount = len;   // simpan jumlah posisi untuk label dropdown
+        if (vaseChoice < 1) return;
+
+        void* vase = ReadPtr(om, "ObjectsManager", "GrandpaVase");
+        int idx = vaseChoice - 1;
+        if (!Alive(vase) || idx >= len) return;
+        void* posTr = ((void**)((uintptr_t)arr + 0x20))[idx];
+        if (!Alive(posTr) || !oGameObjectGetTransform || !oTransformGetPosition || !oTransformSetPosition) return;
+
+        void* vaseTr = oGameObjectGetTransform(vase);
+        if (!Alive(vaseTr)) return;
+        Vector3 p{ 0, 0, 0 };
+        oTransformGetPosition(posTr, &p);
+        oTransformSetPosition(vaseTr, &p);
+        Logger::Log("SPEEDRUN", LOG_OK, "Vase dipindah ke posisi %d dari %d", vaseChoice, len);
+    }
+
+    static void ApplyMomSpider() {
+        if (momRoute < 1 || momRoute > 2) return;
+
+        void* comp = nullptr;
+        void* esc = FirstInstance("Escapes");
+        if (esc && g_GetComponentMethod) {
+            void* go = ReadPtr(esc, "Escapes", "MomSpider");   // GameObject (bisa nonaktif)
+            void* typeObj = TypeObjOf("AI_MomSpider");
+            if (Alive(go) && typeObj) {
+                void* exc = nullptr;
+                void* args[1] = { typeObj };
+                comp = il2cpp_runtime_invoke(g_GetComponentMethod, go, args, &exc);
+                if (exc) comp = nullptr;
+            }
+        }
+        if (!Alive(comp)) comp = FirstInstance("AI_MomSpider");
+        if (!Alive(comp)) {
+            Logger::Log("SPEEDRUN", LOG_WARN, "Spider Mom: komponen AI_MomSpider tidak ditemukan.");
+            return;
+        }
+
+        void* run1 = ReadPtr(comp, "AI_MomSpider", "Run1");
+        void* run2 = ReadPtr(comp, "AI_MomSpider", "Run2");
+        if (!run1 || !run2) return;
+
+        // Dua-duanya diarahkan ke titik yang sama, sehingga pilihan acak game tidak berpengaruh
+        if (momRoute == 1) WritePtr(comp, "AI_MomSpider", "Run2", run1);
+        else               WritePtr(comp, "AI_MomSpider", "Run1", run2);
+        Logger::Log("SPEEDRUN", LOG_OK, "Spider Mom route -> %s", momRoute == 1 ? "Run1 (Tunnel)" : "Run2 (Elevator)");
+    }
+
+    static void ApplyEffects() {
+        if (!extraTraps && !lavaMode) return;
+        void* sem = FirstInstance("SpecialEffectsManager");
+        if (!sem) {
+            Logger::Log("SPEEDRUN", LOG_WARN, "SpecialEffectsManager tidak ditemukan.");
+            return;
+        }
+        if (extraTraps) {
+            void* go = ReadPtr(sem, "SpecialEffectsManager", "extraTraps");
+            if (Alive(go) && oSetGameObjectActive) {
+                oSetGameObjectActive(go, true);
+                Logger::Log("SPEEDRUN", LOG_OK, "Extra Traps diaktifkan.");
+            }
+        }
+        if (lavaMode) {
+            WriteBool(sem, "SpecialEffectsManager", "lavaAtmosphereOn", true);
+            void* rise = ReadPtr(sem, "SpecialEffectsManager", "lavaRise");
+            if (Alive(rise) && oSetGameObjectActive) {
+                oSetGameObjectActive(rise, true);
+                Logger::Log("SPEEDRUN", LOG_OK, "Lava Mode diaktifkan (lavaRise).");
+            }
+        }
+    }
+
+    static void ApplyOverrides() {
+        void* om = FirstInstance("ObjectsManager");
+        if (om) {
+            ApplyRat(om);
+            ApplyVase(om);
+        } else {
+            Logger::Log("SPEEDRUN", LOG_WARN, "ObjectsManager tidak ditemukan.");
+        }
+        ApplyMomSpider();
+        ApplyEffects();
+    }
+
+    // ==============================================================
+    // 3. TOMBOL RESTART MENGAMBANG (memanggil Paused.RestartP())
+    // ==============================================================
+    typedef float (*GetTimeScale_t)();
+
     static void DoRestart() {
+        static GetTimeScale_t getTS = nullptr;
+        static bool resolved = false;
+        if (!resolved) {
+            if (il2cpp_resolve_icall) getTS = (GetTimeScale_t)il2cpp_resolve_icall("UnityEngine.Time::get_timeScale");
+            resolved = true;
+        }
+        // Tidak melakukan apa pun saat game sedang di-pause (sama seperti versi desktop)
+        if (getTS && getTS() < 0.001f) return;
+
+        void* pausedCls = FindClass("", "Paused");
+        void* inst = FirstInstance("Paused");
+        void* method = pausedCls ? il2cpp_class_get_method_from_name(pausedCls, "RestartP", 0) : nullptr;
+        if (inst && method) {
+            void* exc = nullptr;
+            il2cpp_runtime_invoke(method, inst, nullptr, &exc);
+            if (!exc) {
+                Logger::Log("SPEEDRUN", LOG_OK, "Restart: Paused.RestartP() dipanggil.");
+                return;
+            }
+        }
+        // Cadangan: muat ulang scene
         if (oSetTimeScale) oSetTimeScale(1.0f);
         auto_farm::LoadSceneByName("Scene");
-        Logger::Log("SPEEDRUN", LOG_OK, "Restart button pressed -> reload scene 'Scene'.");
+        Logger::Log("SPEEDRUN", LOG_WARN, "Restart: Paused.RestartP() gagal, memuat ulang scene.");
     }
 
     void DrawRestartButton() {
         if (!restartButton) return;
-
-        // nama scene di-cache agar tidak dipanggil tiap frame
-        s_SceneTimer += ImGui::GetIO().DeltaTime;
-        if (s_SceneName.empty() || s_SceneTimer > 0.5f) {
-            s_SceneName = auto_farm::GetCurrentSceneName();
-            s_SceneTimer = 0.0f;
-        }
         if (s_SceneName != "Scene") return;   // hanya tampil saat gameplay
         if (g_ShowMenu) return;               // sembunyi saat menu terbuka
 
@@ -150,16 +327,15 @@ namespace speedrun {
         ImU32 col = IM_COL32(235, 235, 245, 255);
         dl->PathArcTo(ctr, r, -1.2f, 4.2f, 28);
         dl->PathStroke(col, 0, 2.6f * sc);
-        // kepala panah di ujung busur
         float a = 4.2f;
         ImVec2 tip(ctr.x + cosf(a) * r, ctr.y + sinf(a) * r);
-        ImVec2 dir(-sinf(a), cosf(a));            // arah singgung
+        ImVec2 dir(-sinf(a), cosf(a));
         ImVec2 nrm(cosf(a), sinf(a));
-        float h = 5.5f * sc;
+        float hh = 5.5f * sc;
         dl->AddTriangleFilled(
-            ImVec2(tip.x + dir.x * h, tip.y + dir.y * h),
-            ImVec2(tip.x - dir.x * h * 0.2f + nrm.x * h * 0.8f, tip.y - dir.y * h * 0.2f + nrm.y * h * 0.8f),
-            ImVec2(tip.x - dir.x * h * 0.2f - nrm.x * h * 0.8f, tip.y - dir.y * h * 0.2f - nrm.y * h * 0.8f),
+            ImVec2(tip.x + dir.x * hh, tip.y + dir.y * hh),
+            ImVec2(tip.x - dir.x * hh * 0.2f + nrm.x * hh * 0.8f, tip.y - dir.y * hh * 0.2f + nrm.y * hh * 0.8f),
+            ImVec2(tip.x - dir.x * hh * 0.2f - nrm.x * hh * 0.8f, tip.y - dir.y * hh * 0.2f - nrm.y * hh * 0.8f),
             col);
     }
 
@@ -167,10 +343,30 @@ namespace speedrun {
     // UPDATE (dipanggil tiap frame saat scene siap)
     // ==============================================================
     void Update() {
+        float dt = ImGui::GetIO().DeltaTime;
+
+        // nama scene di-cache agar tidak dipanggil tiap frame
+        s_SceneTimer += dt;
+        if (s_SceneName.empty() || s_SceneTimer > 0.5f) {
+            s_SceneName = auto_farm::GetCurrentSceneName();
+            s_SceneTimer = 0.0f;
+        }
+
         if (autoUnlockShop && !s_AutoDone) {
             s_AutoDone = true;
             int n = UnlockAllShop();
             if (n > 0) s_Status = "Auto-unlock: " + std::to_string(n) + " item dibuka";
+        }
+
+        // Override RNG/ekstra: tunggu 2 detik setelah gameplay dimulai agar Start() game selesai
+        if (s_SceneName == "Scene") {
+            s_InGameTimer += dt;
+            if (!s_Applied && s_InGameTimer >= 2.0f) {
+                s_Applied = true;
+                ApplyOverrides();
+            }
+        } else {
+            s_InGameTimer = 0.0f;
         }
     }
 
@@ -197,11 +393,6 @@ namespace speedrun {
         void* p = h ? dlsym(h, name) : nullptr;
         if (!p) p = dlsym(RTLD_DEFAULT, name);
         return p;
-    }
-
-    static bool ContainsAny(const std::string& s, const char* const* keys, int n) {
-        for (int i = 0; i < n; i++) if (s.find(keys[i]) != std::string::npos) return true;
-        return false;
     }
 
     bool DumpClasses() {
@@ -232,17 +423,8 @@ namespace speedrun {
 
         // Kelas yang didump penuh (nama persis)
         static const char* kFullClasses[] = {
-            "ObjectsManager", "SpecialEffectsManager", "AI_MomSpider", "ExplodingCoffinItemManagement",
-            "RemoteRat", "SeedManager", "Escapes", "DaysStart", "RoboGrandparents"
-        };
-        // Kata kunci nama method / field yang dicari di SEMUA kelas
-        static const char* kMethodKeys[] = {
-            "SpawnGranny", "SpawnGrandpa", "ReadGranny", "ReadGrandpa", "ReadPresetOrSeed",
-            "Restart", "Cutscene", "Gambl", "Lava", "ExtraTraps", "Capsule", "ChangeScene", "LoadScene"
-        };
-        static const char* kFieldKeys[] = {
-            "extraTraps", "lava", "Lava", "seed", "Seed", "vase", "Vase", "RemoteRat", "TheOne",
-            "NumberPad", "Run1", "Run2", "RunningToPoint", "speedrun", "Spawn"
+            "EnemyController", "Paused", "Days", "MainMenu", "ColorToyCapsule",
+            "VersionControl", "HE_Spawn", "Menu_Seed", "Lava", "Elevator", "PlayerStatus"
         };
 
         auto typeName = [&](void* t) -> std::string {
@@ -301,48 +483,11 @@ namespace speedrun {
                     if (cn == t) { dumpClass(k); dumped++; break; }
                 }
             }
-            // Bagian B: kelas lain yang punya method/field berkata kunci
-            fprintf(f, "\n\n##### PENCARIAN KATA KUNCI DI SEMUA KELAS #####\n");
-            for (size_t i = 0; i < cc; i++) {
-                void* k = image_get_class(img, i);
-                if (!k) continue;
-                std::string cn = il2cpp_class_get_name(k);
-                bool isFull = false;
-                for (const char* t : kFullClasses) if (cn == t) { isFull = true; break; }
-                if (isFull) continue;
-
-                std::string lines;
-                void* it = nullptr;
-                while (void* m = class_get_methods(k, &it)) {
-                    std::string mn = method_get_name(m);
-                    if (ContainsAny(mn, kMethodKeys, (int)(sizeof(kMethodKeys) / sizeof(kMethodKeys[0])))) {
-                        std::string sig;
-                        uint32_t pc = method_get_param_count ? method_get_param_count(m) : 0;
-                        for (uint32_t p = 0; p < pc; p++) {
-                            if (p) sig += ", ";
-                            sig += typeName(method_get_param ? method_get_param(m, p) : nullptr);
-                        }
-                        lines += "  [method] " + typeName(method_get_return_type ? method_get_return_type(m) : nullptr) +
-                                 " " + mn + "(" + sig + ")\n";
-                    }
-                }
-                it = nullptr;
-                while (void* fld = class_get_fields(k, &it)) {
-                    std::string fn = field_get_name(fld);
-                    if (ContainsAny(fn, kFieldKeys, (int)(sizeof(kFieldKeys) / sizeof(kFieldKeys[0])))) {
-                        lines += "  [field] " + typeName(field_get_type ? field_get_type(fld) : nullptr) + " " + fn + "\n";
-                    }
-                }
-                if (!lines.empty()) {
-                    fprintf(f, "\n-- class %s\n%s", cn.c_str(), lines.c_str());
-                    hits++;
-                }
-            }
         }
 
         fclose(f);
         char buf[160];
-        snprintf(buf, sizeof(buf), "Selesai: %d kelas target, %d kelas cocok. File: dump_classes.txt", dumped, hits);
+        snprintf(buf, sizeof(buf), "Selesai: %d kelas ter-dump. File: dump_classes.txt", dumped);
         s_DumpStatus = buf;
         Logger::Log("SPEEDRUN", LOG_OK, "Class dump written: %s", path.c_str());
         return true;
@@ -351,6 +496,11 @@ namespace speedrun {
     // ==============================================================
     // MENU (tab Speedrun)
     // ==============================================================
+    static const char* kVaseNames[9] = {
+        "Shed", "Crow Room", "Sewer Exit Room", "Spider Room", "Sewer Drain",
+        "Hidden Closet", "Old Dining Room Table", "Bookshelf Room", "Bedroom 1"
+    };
+
     void DrawMenu(float colW, float colH, float colGap) {
         float sc = menuscale::menuscale;
 
@@ -374,17 +524,55 @@ namespace speedrun {
             restartPosX = -1.0f;
             restartPosY = -1.0f;
         }
+
+        ImGui::Spacing();
+        edited::colortext(ImVec4(1, 1, 1, 1), "Game Extras");
+        ImGui::Separator();
+        ImGui::Spacing();
+        edited::checkbox("Extra Traps", &extraTraps);
+        edited::checkbox("Lava Mode", &lavaMode);
+        ImGui::TextWrapped("%s", "Berlaku saat run dimulai. Setelah mengubah, restart run.");
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
 
         ImGui::BeginChild("##sr1", ImVec2(colW, colH), false);
-        edited::colortext(ImVec4(1, 1, 1, 1), "Developer Tools");
+        edited::colortext(ImVec4(1, 1, 1, 1), "RNG Control");
         ImGui::Separator();
         ImGui::Spacing();
 
-        ImGui::TextWrapped("Dump Game Classes menulis file dump_classes.txt ke folder data game. Kirim file itu untuk melengkapi fitur RNG, Extra Traps, Lava Mode, dan Auto Skip.");
+        static const char* ratItems[] = { "Random", "Left", "Right" };
+        static const char* momItems[] = { "Random", "Tunnel", "Elevator" };
+        edited::combo("Door-Opening Rat", &ratChoice, ratItems, 3);
+        edited::combo("Spider Mom Route", &momRoute, momItems, 3);
+
+        // Dropdown posisi guci: "Random" + nama posisi (atau "Position N" jika jumlahnya bukan 9)
+        static std::vector<std::string> s_VaseLabels;
+        static std::vector<const char*> s_VasePtrs;
+        static int s_VaseBuiltFor = -1;
+        int n = (vaseCount > 0) ? vaseCount : 9;
+        if (s_VaseBuiltFor != n) {
+            s_VaseLabels.clear();
+            s_VaseLabels.push_back("Random");
+            for (int i = 0; i < n; i++) {
+                if (n == 9) s_VaseLabels.push_back(kVaseNames[i]);
+                else s_VaseLabels.push_back("Position " + std::to_string(i + 1));
+            }
+            s_VasePtrs.clear();
+            for (auto& s : s_VaseLabels) s_VasePtrs.push_back(s.c_str());
+            s_VaseBuiltFor = n;
+        }
+        if (vaseChoice > n) vaseChoice = 0;
+        edited::combo("Grandpa Vase Location", &vaseChoice, s_VasePtrs.data(), (int)s_VasePtrs.size());
+
         ImGui::Spacing();
+        ImGui::TextWrapped("%s", "Pilihan RNG diterapkan 2 detik setelah run dimulai. Ubah lalu restart run agar berlaku.");
+
+        ImGui::Spacing();
+        edited::colortext(ImVec4(1, 1, 1, 1), "Developer Tools");
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", "Dump Game Classes menulis dump_classes.txt ke folder data game, untuk melengkapi fitur berikutnya (spawn Granny/Grandpa, elevator box, auto skip).");
         if (edited::buttonn("Dump Game Classes", ImVec2(-1, 38 * sc))) {
             DumpClasses();
         }
