@@ -165,6 +165,12 @@ namespace config {
         o += Fmt("restartButton=%d\n", speedrun::restartButton ? 1 : 0);
         o += Fmt("restartPosX=%.1f\n", speedrun::restartPosX);
         o += Fmt("restartPosY=%.1f\n", speedrun::restartPosY);
+        o += Fmt("ratChoice=%d\n", speedrun::ratChoice);
+        o += Fmt("momRoute=%d\n", speedrun::momRoute);
+        o += Fmt("vaseChoice=%d\n", speedrun::vaseChoice);
+        o += Fmt("vaseCount=%d\n", speedrun::vaseCount);
+        o += Fmt("extraTraps=%d\n", speedrun::extraTraps ? 1 : 0);
+        o += Fmt("lavaMode=%d\n", speedrun::lavaMode ? 1 : 0);
 
         o += Fmt("speedhackEnabled=%d\n", speedhack::enabled ? 1 : 0);
         o += Fmt("speedMultiplier=%.2f\n", speedhack::multiplier);
@@ -263,6 +269,12 @@ namespace config {
             else if (sscanf(line, "restartButton=%d", &iVal) == 1) speedrun::restartButton = (iVal != 0);
             else if (sscanf(line, "restartPosX=%f", &fVal) == 1) speedrun::restartPosX = fVal;
             else if (sscanf(line, "restartPosY=%f", &fVal) == 1) speedrun::restartPosY = fVal;
+            else if (sscanf(line, "ratChoice=%d", &iVal) == 1) speedrun::ratChoice = iVal;
+            else if (sscanf(line, "momRoute=%d", &iVal) == 1) speedrun::momRoute = iVal;
+            else if (sscanf(line, "vaseChoice=%d", &iVal) == 1) speedrun::vaseChoice = iVal;
+            else if (sscanf(line, "vaseCount=%d", &iVal) == 1) speedrun::vaseCount = iVal;
+            else if (sscanf(line, "extraTraps=%d", &iVal) == 1) speedrun::extraTraps = (iVal != 0);
+            else if (sscanf(line, "lavaMode=%d", &iVal) == 1) speedrun::lavaMode = (iVal != 0);
 
             else if (sscanf(line, "speedhackEnabled=%d", &iVal) == 1) speedhack::enabled = (iVal != 0);
             else if (sscanf(line, "speedMultiplier=%f", &fVal) == 1) speedhack::multiplier = fVal;
