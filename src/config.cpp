@@ -8,6 +8,7 @@
 #include "reshade.h"
 #include "auto_farm.h"
 #include "menu.h"
+#include "Aim.h"
 
 #include <cstdio>
 #include <cstring>
@@ -16,12 +17,28 @@
 #include <unistd.h>
 #include <algorithm>
 #include <string>
+#include <map>
+#include <cstdarg>
 
 namespace config {
     char statusText[64] = "Готов / Ready";
     char currentConfigName[64] = "kahanium.cfg";
     std::vector<std::string> foundConfigs;
     const char* configFolder = "/sdcard/Android/data/com.OmegaMegaGigalIntel.GrannyLegacy/files";
+
+    // Berkas autosave: dimuat otomatis saat game dibuka, ditulis otomatis saat pengaturan berubah
+    static const char* kAutoFile = "autosave.cfg";
+    static std::string s_LastAutoSaved;
+    static float s_AutoSaveTimer = 0.0f;
+
+    static std::string Fmt(const char* fmt, ...) {
+        char buf[512];
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        va_end(ap);
+        return std::string(buf);
+    }
 
     // Умный поиск доступной для записи папки (обход защит OriginOS/HyperOS)
     std::string GetActiveConfigPath() {
@@ -73,6 +90,7 @@ namespace config {
             struct dirent* entry;
             while ((entry = readdir(dir)) != nullptr) {
                 std::string fName = entry->d_name;
+                if (fName == kAutoFile) continue;
                 if (fName.length() > 4 && fName.rfind(".cfg") == fName.length() - 4) {
                     foundConfigs.push_back(fName);
                 }
@@ -91,102 +109,91 @@ namespace config {
         }
     }
 
-    void Init() {
-        RefreshConfigList();
-    }
+    // Susun seluruh pengaturan menjadi satu teks
+    static std::string BuildConfigText() {
+        std::string o;
+        o += Fmt("language=%d\n", g_Language);
+        o += Fmt("snowEnabled=%d\n", g_SnowEnabled ? 1 : 0);
+        o += Fmt("glowEnabled=%d\n", g_WindowGlowEnabled ? 1 : 0);
+        o += Fmt("backgroundDim=%.2f\n", g_BackgroundDim);
 
-    void SaveConfig(const char* customName) {
-        std::string folder = GetActiveConfigPath();
-        std::string targetFile;
-
-        if (customName && strlen(customName) > 0) {
-            targetFile = customName;
-        } else if (strlen(currentConfigName) > 0) {
-            targetFile = currentConfigName;
-        } else {
-            targetFile = GetNextAutoConfigName();
-        }
-
-        if (targetFile.find(".cfg") == std::string::npos) {
-            targetFile += ".cfg";
-        }
-
-        std::string fullPath = folder + "/" + targetFile;
-        FILE* f = fopen(fullPath.c_str(), "w");
-        if (!f) {
-            snprintf(statusText, sizeof(statusText), "Ошибка записи: %s", targetFile.c_str());
-            return;
-        }
-
-        fprintf(f, "language=%d\n", g_Language);
-        fprintf(f, "snowEnabled=%d\n", g_SnowEnabled ? 1 : 0);
-        fprintf(f, "glowEnabled=%d\n", g_WindowGlowEnabled ? 1 : 0);
-        fprintf(f, "backgroundDim=%.2f\n", g_BackgroundDim);
-
-        fprintf(f, "enemiesEnabled=%d\n", esp_enemies::enabled ? 1 : 0);
-        fprintf(f, "targetGranny=%d\n", esp_enemies::targetGranny ? 1 : 0);
-        fprintf(f, "targetGrandpa=%d\n", esp_enemies::targetGrandpa ? 1 : 0);
-        fprintf(f, "targetSpiderMom=%d\n", esp_enemies::targetSpiderMom ? 1 : 0);
-        fprintf(f, "enemiesWidth=%.2f\n", esp_enemies::outlineWidth);
-        fprintf(f, "enemiesColor=%.3f,%.3f,%.3f,%.3f\n",
+        o += Fmt("enemiesEnabled=%d\n", esp_enemies::enabled ? 1 : 0);
+        o += Fmt("targetGranny=%d\n", esp_enemies::targetGranny ? 1 : 0);
+        o += Fmt("targetGrandpa=%d\n", esp_enemies::targetGrandpa ? 1 : 0);
+        o += Fmt("targetSpiderMom=%d\n", esp_enemies::targetSpiderMom ? 1 : 0);
+        o += Fmt("enemiesWidth=%.2f\n", esp_enemies::outlineWidth);
+        o += Fmt("enemiesColor=%.3f,%.3f,%.3f,%.3f\n",
             esp_enemies::color[0], esp_enemies::color[1], esp_enemies::color[2], esp_enemies::color[3]);
+        o += Fmt("enemiesDrawBox=%d\n", esp_enemies::drawBox ? 1 : 0);
+        o += Fmt("enemiesBoxType=%d\n", esp_enemies::boxType);
+        o += Fmt("enemiesBoxFill=%d\n", esp_enemies::boxFill ? 1 : 0);
+        o += Fmt("enemiesDrawName=%d\n", esp_enemies::drawName ? 1 : 0);
+        o += Fmt("enemiesDrawDistance=%d\n", esp_enemies::drawDistance ? 1 : 0);
+        o += Fmt("enemiesDrawTracers=%d\n", esp_enemies::drawTracers ? 1 : 0);
+        o += Fmt("enemiesChams=%d\n", esp_enemies::enableChams ? 1 : 0);
+        o += Fmt("enemyHeight=%.3f\n", esp_enemies::enemyHeight);
+        o += Fmt("enemyWidthMul=%.3f\n", esp_enemies::enemyWidthMul);
+        o += Fmt("enemyYOffset=%.3f\n", esp_enemies::yOffset);
+        o += Fmt("spiderHeight=%.3f\n", esp_enemies::spiderHeight);
+        o += Fmt("spiderWidthMul=%.3f\n", esp_enemies::spiderWidthMul);
+        o += Fmt("tracerColor=%.3f,%.3f,%.3f,%.3f\n",
+            esp_enemies::tracerColor[0], esp_enemies::tracerColor[1], esp_enemies::tracerColor[2], esp_enemies::tracerColor[3]);
 
-        fprintf(f, "itemsEnabled=%d\n", esp_items::enabled ? 1 : 0);
-        fprintf(f, "itemsWidth=%.2f\n", esp_items::width);
-        fprintf(f, "itemsColor=%.3f,%.3f,%.3f,%.3f\n",
+        o += Fmt("itemsEnabled=%d\n", esp_items::enabled ? 1 : 0);
+        o += Fmt("itemsWidth=%.2f\n", esp_items::width);
+        o += Fmt("itemsColor=%.3f,%.3f,%.3f,%.3f\n",
             esp_items::color[0], esp_items::color[1], esp_items::color[2], esp_items::color[3]);
 
-        fprintf(f, "disableDarkerFog=%d\n", reshade::disableDarkerFog ? 1 : 0);
-        fprintf(f, "disableLightmaps=%d\n", reshade::disableLightmaps ? 1 : 0);
-        fprintf(f, "godmode=%d\n", player_mods::godmode ? 1 : 0);
-        fprintf(f, "noFallDamage=%d\n", player_mods::noFallDamage ? 1 : 0);
-        fprintf(f, "fovChanger=%d\n", player_mods::fovChanger ? 1 : 0);
-        fprintf(f, "customFov=%.1f\n", player_mods::customFov);
+        o += Fmt("grannyAimEnabled=%d\n", aim::grannyAimEnabled ? 1 : 0);
+        o += Fmt("aimOnlyWithWeapon=%d\n", aim::onlyWithWeapon ? 1 : 0);
+        o += Fmt("grannySmoothness=%.2f\n", aim::grannySmoothness);
+        o += Fmt("itemAimEnabled=%d\n", aim::itemAimEnabled ? 1 : 0);
+        o += Fmt("itemSmoothness=%.2f\n", aim::itemSmoothness);
 
-        fprintf(f, "speedhackEnabled=%d\n", speedhack::enabled ? 1 : 0);
-        fprintf(f, "speedMultiplier=%.2f\n", speedhack::multiplier);
+        o += Fmt("disableDarkerFog=%d\n", reshade::disableDarkerFog ? 1 : 0);
+        o += Fmt("disableLightmaps=%d\n", reshade::disableLightmaps ? 1 : 0);
+        o += Fmt("godmode=%d\n", player_mods::godmode ? 1 : 0);
+        o += Fmt("noFallDamage=%d\n", player_mods::noFallDamage ? 1 : 0);
+        o += Fmt("fovChanger=%d\n", player_mods::fovChanger ? 1 : 0);
+        o += Fmt("customFov=%.1f\n", player_mods::customFov);
+        o += Fmt("infiniteAmmo=%d\n", player_mods::infiniteAmmo ? 1 : 0);
+        o += Fmt("electricDarts=%d\n", player_mods::electricDarts ? 1 : 0);
+        o += Fmt("explosiveShotgun=%d\n", player_mods::explosiveShotgun ? 1 : 0);
 
-        fprintf(f, "flatEnabled=%d\n", flat_textures::flatEnabled ? 1 : 0);
-        fprintf(f, "flatColor=%.3f,%.3f,%.3f,%.3f\n",
+        o += Fmt("speedhackEnabled=%d\n", speedhack::enabled ? 1 : 0);
+        o += Fmt("speedMultiplier=%.2f\n", speedhack::multiplier);
+
+        o += Fmt("flatEnabled=%d\n", flat_textures::flatEnabled ? 1 : 0);
+        o += Fmt("flatColor=%.3f,%.3f,%.3f,%.3f\n",
             flat_textures::flatColor[0], flat_textures::flatColor[1], flat_textures::flatColor[2], flat_textures::flatColor[3]);
-        fprintf(f, "pixelateEnabled=%d\n", flat_textures::pixelateEnabled ? 1 : 0);
-        fprintf(f, "pixelateLevel=%d\n", flat_textures::pixelateLevel);
+        o += Fmt("pixelateEnabled=%d\n", flat_textures::pixelateEnabled ? 1 : 0);
+        o += Fmt("pixelateLevel=%d\n", flat_textures::pixelateLevel);
 
-        fprintf(f, "autoFarmEnabled=%d\n", auto_farm::enabled ? 1 : 0);
-        fprintf(f, "autoFarmMethod=%d\n", auto_farm::escapeMethod);
-        fprintf(f, "autoFarmSpeed=%.1f\n", auto_farm::fastForwardSpeed);
-        fprintf(f, "autoFarmMenuDelay=%.2f\n", auto_farm::menuDelay);
-        fprintf(f, "autoFarmCutsceneDelay=%.2f\n", auto_farm::cutsceneDelay);
+        o += Fmt("autoFarmEnabled=%d\n", auto_farm::enabled ? 1 : 0);
+        o += Fmt("autoFarmMethod=%d\n", auto_farm::escapeMethod);
+        o += Fmt("autoFarmSpeed=%.1f\n", auto_farm::fastForwardSpeed);
+        o += Fmt("autoFarmMenuDelay=%.2f\n", auto_farm::menuDelay);
+        o += Fmt("autoFarmCutsceneDelay=%.2f\n", auto_farm::cutsceneDelay);
 
-        fprintf(f, "unlocksMasterEnabled=%d\n", game_unlocks::enabled ? 1 : 0);
-        for (auto& pair : game_unlocks::savedToggles) {
-            fprintf(f, "unlock_%s=%d\n", pair.first.c_str(), pair.second ? 1 : 0);
+        o += Fmt("unlocksMasterEnabled=%d\n", game_unlocks::enabled ? 1 : 0);
+        // diurutkan agar isi teks stabil (dipakai untuk mendeteksi perubahan)
+        std::map<std::string, bool> sortedToggles(game_unlocks::savedToggles.begin(), game_unlocks::savedToggles.end());
+        for (auto& pair : sortedToggles) {
+            o += Fmt("unlock_%s=%d\n", pair.first.c_str(), pair.second ? 1 : 0);
         }
 
-        fprintf(f, "uiScale=%.2f\n", g_UiScale);
-        fprintf(f, "homeBarWidth=%.1f\n", g_HomeBarWidth);
-        fprintf(f, "scrollbarSize=%.1f\n", g_ScrollbarSize);
-        fprintf(f, "accentColor=%.3f,%.3f,%.3f,%.3f\n",
+        o += Fmt("uiScale=%.2f\n", g_UiScale);
+        o += Fmt("homeBarWidth=%.1f\n", g_HomeBarWidth);
+        o += Fmt("scrollbarSize=%.1f\n", g_ScrollbarSize);
+        o += Fmt("accentColor=%.3f,%.3f,%.3f,%.3f\n",
             g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], g_AccentColor[3]);
-
-        fclose(f);
-        RefreshConfigList();
-        snprintf(statusText, sizeof(statusText), "Сохранено: %s", targetFile.c_str());
+        return o;
     }
 
-    void LoadConfig(const char* customName) {
-        std::string folder = GetActiveConfigPath();
-        std::string targetFile = (customName && strlen(customName) > 0) ? customName : currentConfigName;
-        if (targetFile.find(".cfg") == std::string::npos) {
-            targetFile += ".cfg";
-        }
-
-        std::string fullPath = folder + "/" + targetFile;
+    // Baca satu berkas config. Mengembalikan false kalau berkas tidak ada.
+    static bool ParseConfigFile(const std::string& fullPath) {
         FILE* f = fopen(fullPath.c_str(), "r");
-        if (!f) {
-            snprintf(statusText, sizeof(statusText), "Не найден: %s", targetFile.c_str());
-            return;
-        }
+        if (!f) return false;
 
         char line[256];
         while (fgets(line, sizeof(line), f)) {
@@ -208,17 +215,43 @@ namespace config {
             else if (sscanf(line, "enemiesColor=%f,%f,%f,%f", &c0, &c1, &c2, &c3) == 4) {
                 esp_enemies::color[0] = c0; esp_enemies::color[1] = c1; esp_enemies::color[2] = c2; esp_enemies::color[3] = c3;
             }
+            else if (sscanf(line, "enemiesDrawBox=%d", &iVal) == 1) esp_enemies::drawBox = (iVal != 0);
+            else if (sscanf(line, "enemiesBoxType=%d", &iVal) == 1) esp_enemies::boxType = iVal;
+            else if (sscanf(line, "enemiesBoxFill=%d", &iVal) == 1) esp_enemies::boxFill = (iVal != 0);
+            else if (sscanf(line, "enemiesDrawName=%d", &iVal) == 1) esp_enemies::drawName = (iVal != 0);
+            else if (sscanf(line, "enemiesDrawDistance=%d", &iVal) == 1) esp_enemies::drawDistance = (iVal != 0);
+            else if (sscanf(line, "enemiesDrawTracers=%d", &iVal) == 1) esp_enemies::drawTracers = (iVal != 0);
+            else if (sscanf(line, "enemiesChams=%d", &iVal) == 1) esp_enemies::enableChams = (iVal != 0);
+            else if (sscanf(line, "enemyHeight=%f", &fVal) == 1) esp_enemies::enemyHeight = fVal;
+            else if (sscanf(line, "enemyWidthMul=%f", &fVal) == 1) esp_enemies::enemyWidthMul = fVal;
+            else if (sscanf(line, "enemyYOffset=%f", &fVal) == 1) esp_enemies::yOffset = fVal;
+            else if (sscanf(line, "spiderHeight=%f", &fVal) == 1) esp_enemies::spiderHeight = fVal;
+            else if (sscanf(line, "spiderWidthMul=%f", &fVal) == 1) esp_enemies::spiderWidthMul = fVal;
+            else if (sscanf(line, "tracerColor=%f,%f,%f,%f", &c0, &c1, &c2, &c3) == 4) {
+                esp_enemies::tracerColor[0] = c0; esp_enemies::tracerColor[1] = c1; esp_enemies::tracerColor[2] = c2; esp_enemies::tracerColor[3] = c3;
+            }
+
             else if (sscanf(line, "itemsEnabled=%d", &iVal) == 1) esp_items::enabled = (iVal != 0);
             else if (sscanf(line, "itemsWidth=%f", &fVal) == 1) esp_items::width = fVal;
             else if (sscanf(line, "itemsColor=%f,%f,%f,%f", &c0, &c1, &c2, &c3) == 4) {
                 esp_items::color[0] = c0; esp_items::color[1] = c1; esp_items::color[2] = c2; esp_items::color[3] = c3;
             }
+
+            else if (sscanf(line, "grannyAimEnabled=%d", &iVal) == 1) aim::grannyAimEnabled = (iVal != 0);
+            else if (sscanf(line, "aimOnlyWithWeapon=%d", &iVal) == 1) aim::onlyWithWeapon = (iVal != 0);
+            else if (sscanf(line, "grannySmoothness=%f", &fVal) == 1) aim::grannySmoothness = fVal;
+            else if (sscanf(line, "itemAimEnabled=%d", &iVal) == 1) aim::itemAimEnabled = (iVal != 0);
+            else if (sscanf(line, "itemSmoothness=%f", &fVal) == 1) aim::itemSmoothness = fVal;
+
             else if (sscanf(line, "disableDarkerFog=%d", &iVal) == 1) reshade::disableDarkerFog = (iVal != 0);
             else if (sscanf(line, "disableLightmaps=%d", &iVal) == 1) reshade::disableLightmaps = (iVal != 0);
             else if (sscanf(line, "godmode=%d", &iVal) == 1) player_mods::godmode = (iVal != 0);
             else if (sscanf(line, "noFallDamage=%d", &iVal) == 1) player_mods::noFallDamage = (iVal != 0);
             else if (sscanf(line, "fovChanger=%d", &iVal) == 1) player_mods::fovChanger = (iVal != 0);
             else if (sscanf(line, "customFov=%f", &fVal) == 1) player_mods::customFov = fVal;
+            else if (sscanf(line, "infiniteAmmo=%d", &iVal) == 1) player_mods::infiniteAmmo = (iVal != 0);
+            else if (sscanf(line, "electricDarts=%d", &iVal) == 1) player_mods::electricDarts = (iVal != 0);
+            else if (sscanf(line, "explosiveShotgun=%d", &iVal) == 1) player_mods::explosiveShotgun = (iVal != 0);
 
             else if (sscanf(line, "speedhackEnabled=%d", &iVal) == 1) speedhack::enabled = (iVal != 0);
             else if (sscanf(line, "speedMultiplier=%f", &fVal) == 1) speedhack::multiplier = fVal;
@@ -249,6 +282,86 @@ namespace config {
         }
 
         fclose(f);
+        return true;
+    }
+
+    void Init() {
+        RefreshConfigList();
+
+        // Muat otomatis pengaturan terakhir. Kalau autosave belum ada, pakai kahanium.cfg lama.
+        std::string folder = GetActiveConfigPath();
+        std::string autoPath = folder + "/" + kAutoFile;
+        if (access(autoPath.c_str(), F_OK) != 0) {
+            autoPath = folder + "/kahanium.cfg";
+        }
+        if (ParseConfigFile(autoPath)) {
+            SetupPremiumStyle(g_UiScale);
+            snprintf(statusText, sizeof(statusText), "Загружено / Loaded");
+        }
+        s_LastAutoSaved = BuildConfigText();
+    }
+
+    // Dipanggil tiap frame. Menyimpan otomatis (maks. tiap 2 detik) jika ada pengaturan yang berubah.
+    void AutoSaveTick() {
+        s_AutoSaveTimer += ImGui::GetIO().DeltaTime;
+        if (s_AutoSaveTimer < 2.0f) return;
+        s_AutoSaveTimer = 0.0f;
+
+        std::string text = BuildConfigText();
+        if (text == s_LastAutoSaved) return;
+
+        std::string fullPath = GetActiveConfigPath() + "/" + kAutoFile;
+        FILE* f = fopen(fullPath.c_str(), "w");
+        if (!f) return;
+        fwrite(text.data(), 1, text.size(), f);
+        fclose(f);
+        s_LastAutoSaved = text;
+    }
+
+    void SaveConfig(const char* customName) {
+        std::string folder = GetActiveConfigPath();
+        std::string targetFile;
+
+        if (customName && strlen(customName) > 0) {
+            targetFile = customName;
+        } else if (strlen(currentConfigName) > 0) {
+            targetFile = currentConfigName;
+        } else {
+            targetFile = GetNextAutoConfigName();
+        }
+
+        if (targetFile.find(".cfg") == std::string::npos) {
+            targetFile += ".cfg";
+        }
+
+        std::string fullPath = folder + "/" + targetFile;
+        FILE* f = fopen(fullPath.c_str(), "w");
+        if (!f) {
+            snprintf(statusText, sizeof(statusText), "Ошибка записи: %s", targetFile.c_str());
+            return;
+        }
+
+        std::string text = BuildConfigText();
+        fwrite(text.data(), 1, text.size(), f);
+        fclose(f);
+
+        RefreshConfigList();
+        snprintf(statusText, sizeof(statusText), "Сохранено: %s", targetFile.c_str());
+    }
+
+    void LoadConfig(const char* customName) {
+        std::string folder = GetActiveConfigPath();
+        std::string targetFile = (customName && strlen(customName) > 0) ? customName : currentConfigName;
+        if (targetFile.find(".cfg") == std::string::npos) {
+            targetFile += ".cfg";
+        }
+
+        std::string fullPath = folder + "/" + targetFile;
+        if (!ParseConfigFile(fullPath)) {
+            snprintf(statusText, sizeof(statusText), "Не найден: %s", targetFile.c_str());
+            return;
+        }
+
         SetupPremiumStyle(g_UiScale);
         snprintf(statusText, sizeof(statusText), "Загружено: %s", targetFile.c_str());
     }

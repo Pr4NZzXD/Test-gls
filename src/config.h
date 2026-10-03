@@ -9,6 +9,7 @@ namespace config {
     extern const char* configFolder;
 
     void Init();
+    void AutoSaveTick();
     void RefreshConfigList();
     std::string GetNextAutoConfigName();
     void SaveConfig(const char* customName = nullptr);
