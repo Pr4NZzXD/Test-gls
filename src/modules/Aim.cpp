@@ -26,6 +26,10 @@ namespace aim {
     std::vector<LiveItemTarget> liveItems;
     static void* s_LockedItemTr = nullptr;
     static void* s_HandHoldTr = nullptr;
+    static int s_HandBaseline = 1000;       // jumlah objek tangan aktif paling sedikit yang pernah terlihat (tangan kosong)
+    static int s_LastHandLog = -2;
+    static void* s_PrevAutoTarget = nullptr; // target item terakhir yang di-aim otomatis
+    static float s_ItemCooldown = 0.0f;      // jeda aim item setelah item diambil
     static char s_ItemFilter[64] = "";
     static std::string s_Status = "";
     static float s_StatusTimer = 0.0f;
@@ -40,6 +44,10 @@ namespace aim {
         s_MobileFPSClass = nullptr;
         s_LockedItemTr = nullptr;
         s_HandHoldTr = nullptr;
+        s_HandBaseline = 1000;
+        s_LastHandLog = -2;
+        s_PrevAutoTarget = nullptr;
+        s_ItemCooldown = 0.0f;
         liveItems.clear();
     }
 
@@ -129,7 +137,9 @@ namespace aim {
         return false;
     }
 
-    // Cek apakah pemain sedang memegang item/senjata apa pun di tangan
+    // Cek apakah pemain sedang memegang sesuatu di tangan.
+    // Tidak bergantung pada nama objek: dihitung dari jumlah anak HandHoldObjects yang aktif,
+    // dibandingkan dengan jumlah aktif terkecil yang pernah terlihat (tangan kosong).
     bool IsPlayerHoldingAnyItem() {
         if (!s_HandHoldTr || !IsNativeObjectAlive(s_HandHoldTr)) {
             s_HandHoldTr = FindTransformByPath("PlayerStuff/HandHoldObjects");
@@ -137,15 +147,27 @@ namespace aim {
         if (!s_HandHoldTr || !IsNativeObjectAlive(s_HandHoldTr)) return false;
 
         int childCount = SafeGetChildCount(s_HandHoldTr);
+        int active = 0;
+        std::string names;
         for (int i = 0; i < childCount; i++) {
             void* childTr = SafeGetChild(s_HandHoldTr, i);
             if (!childTr || !IsNativeObjectAlive(childTr)) continue;
             void* go = oComponentGetGameObject ? oComponentGetGameObject(childTr) : nullptr;
             if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) {
-                return true;
+                active++;
+                if (names.size() < 160) names += GetUnityObjectName(childTr) + " ";
             }
         }
-        return false;
+
+        if (active < s_HandBaseline) s_HandBaseline = active;
+
+        // Catat ke tab Debugger setiap kali jumlah objek aktif berubah (untuk pengecekan)
+        if (active != s_LastHandLog) {
+            s_LastHandLog = active;
+            Logger::Log("AIM", LOG_OK, "HandHold aktif=%d baseline=%d : %s", active, s_HandBaseline, names.c_str());
+        }
+
+        return active > s_HandBaseline;
     }
 
     void* GetGrannyHeadTransform() {
@@ -396,6 +418,7 @@ namespace aim {
             void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(s_LockedItemTr) : nullptr;
             if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) {
                 s_LockedItemTr = nullptr; // Сброс при подборе
+                s_ItemCooldown = 2.5f;    // item baru diambil: kamera bebas sejenak
             } else {
                 AimAtTarget(s_LockedItemTr, playerTr, camTr, camPivotTr, mfps);
                 return;
@@ -403,6 +426,23 @@ namespace aim {
         }
 
         if (itemAimEnabled) {
+            // Kalau target sebelumnya hilang/nonaktif berarti item baru diambil -> beri jeda
+            if (s_PrevAutoTarget) {
+                bool gone = !IsNativeObjectAlive(s_PrevAutoTarget);
+                if (!gone) {
+                    void* prevGO = oComponentGetGameObject ? oComponentGetGameObject(s_PrevAutoTarget) : nullptr;
+                    if (prevGO && oGetGameObjectActive && !oGetGameObjectActive(prevGO)) gone = true;
+                }
+                if (gone) {
+                    s_PrevAutoTarget = nullptr;
+                    s_ItemCooldown = 2.5f;
+                }
+            }
+            if (s_ItemCooldown > 0.0f) {
+                s_ItemCooldown -= ImGui::GetIO().DeltaTime;
+                return;
+            }
+
             if (liveItems.empty()) {
                 ScanLiveItems();
             }
@@ -430,7 +470,10 @@ namespace aim {
             }
 
             if (bestTarget) {
+                s_PrevAutoTarget = bestTarget;
                 AimAtTarget(bestTarget, playerTr, camTr, camPivotTr, mfps);
+            } else {
+                s_PrevAutoTarget = nullptr;
             }
         }
     }
