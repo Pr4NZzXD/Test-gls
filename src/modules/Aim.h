@@ -1,44 +1,39 @@
 #pragma once
-
 #include <vector>
 #include <string>
-#include <unordered_set>
 
-namespace Modules {
+namespace aim {
+    // Аимбот на Бабку
+    extern bool grannyAimEnabled;
+    extern bool onlyWithWeapon;
+    extern float grannySmoothness;
+    extern bool showGrannySettings;
 
-    class Aim {
-    public:
-        static bool grannyAimEnabled;
-        static bool onlyWithWeapon;
-        static float grannySmoothness;
-        static bool showGrannySettings;
+    // Аимбот на предметы
+    extern bool itemAimEnabled;
+    extern float itemSmoothness;
+    extern bool showItemSettings;
+    extern float itemAimDistance;   // aim item hanya aktif jika jarak pemain-item <= nilai ini (meter)
 
-        static bool aim_item_enabled;
-        static bool auto_aim_on_distance;
-        static float aim_item_distance;
-        static float itemSmoothness;
-        static bool showItemSettings;
-
-        static std::unordered_set<std::string> target_item_list;
-
-        struct LiveItemTarget {
-            std::string name;
-            void* transform;
-            bool selected;
-        };
-
-        static std::vector<LiveItemTarget> liveItems;
-
-        static void Update();
-        static void ScanLiveItems();
-        static void ClearCache();
-        static bool IsItemInList(const std::string& itemName);
-        static void ExportItemsToTxt();
-        static void DrawMenu();
-        static void Init();
-
-    private:
-        static void ProcessGrannyAim();
-        static void ProcessItemAim();
+    struct LiveItemTarget {
+        std::string name;
+        void* transform;
+        bool selected;
+        std::string baseName;   // nama tanpa "(Clone)" dipakai oleh filter item
     };
+    extern std::vector<LiveItemTarget> liveItems;
+
+    void Init();
+    void ClearCache();
+    void Update();
+    void DrawMenu();
+    void ScanLiveItems();
+    void ExportItemsToTxt();
+
+    // Filter jenis item (centang = item itu boleh di-aim)
+    std::vector<std::string> ItemTypeNames();
+    bool* ItemTypeEnabledPtr(const std::string& name);
+    void SetItemTypeEnabled(const std::string& name, bool enabled);
+    void SetAllItemTypes(bool enabled);
+    std::string PrettyItemName(const std::string& name);
 }

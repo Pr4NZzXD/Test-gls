@@ -253,15 +253,33 @@ namespace speedrun {
     // ==============================================================
     typedef float (*GetTimeScale_t)();
 
-    static void DoRestart() {
+    static float CurrentTimeScale() {
         static GetTimeScale_t getTS = nullptr;
         static bool resolved = false;
         if (!resolved) {
             if (il2cpp_resolve_icall) getTS = (GetTimeScale_t)il2cpp_resolve_icall("UnityEngine.Time::get_timeScale");
             resolved = true;
         }
-        // Tidak melakukan apa pun saat game sedang di-pause (sama seperti versi desktop)
-        if (getTS && getTS() < 0.001f) return;
+        return getTS ? getTS() : 1.0f;
+    }
+
+    bool IsPaused() { return CurrentTimeScale() < 0.001f; }
+
+    bool IsGameplay() {
+        static double s_last = -1.0;
+        static bool s_val = false;
+        double now = ImGui::GetTime();
+        if (s_last < 0.0 || now - s_last > 0.5) {
+            s_last = now;
+            s_val = (auto_farm::GetCurrentSceneName() == "Scene");
+        }
+        return s_val;
+    }
+
+    void RestartRun(bool allowWhilePaused) {
+        // Tombol melayang tidak berbuat apa pun saat game di-pause (sama seperti versi desktop);
+        // tombol restart di popup justru dipakai saat pause, jadi diizinkan.
+        if (!allowWhilePaused && IsPaused()) return;
 
         void* pausedCls = FindClass("", "Paused");
         void* inst = FirstInstance("Paused");
@@ -270,15 +288,17 @@ namespace speedrun {
             void* exc = nullptr;
             il2cpp_runtime_invoke(method, inst, nullptr, &exc);
             if (!exc) {
-                Logger::Log("SPEEDRUN", LOG_OK, "Restart: Paused.RestartP() dipanggil.");
+                Logger::Log("SPEEDRUN", LOG_OK, "Restart: Paused.RestartP() called.");
                 return;
             }
         }
         // Cadangan: muat ulang scene
         if (oSetTimeScale) oSetTimeScale(1.0f);
         auto_farm::LoadSceneByName("Scene");
-        Logger::Log("SPEEDRUN", LOG_WARN, "Restart: Paused.RestartP() gagal, memuat ulang scene.");
+        Logger::Log("SPEEDRUN", LOG_WARN, "Restart: Paused.RestartP() failed, reloading scene.");
     }
+
+    static void DoRestart() { RestartRun(false); }
 
     void DrawRestartButton() {
         if (!restartButton) return;
@@ -355,7 +375,7 @@ namespace speedrun {
         if (autoUnlockShop && !s_AutoDone) {
             s_AutoDone = true;
             int n = UnlockAllShop();
-            if (n > 0) s_Status = "Auto-unlock: " + std::to_string(n) + " item dibuka";
+            if (n > 0) s_Status = "Auto-unlock: " + std::to_string(n) + " item(s) unlocked";
         }
 
         // Override RNG/ekstra: tunggu 2 detik setelah gameplay dimulai agar Start() game selesai
@@ -413,13 +433,13 @@ namespace speedrun {
         if (!image_get_class_count || !image_get_class || !class_get_methods || !class_get_fields ||
             !method_get_name || !field_get_name || !il2cpp_class_get_name ||
             !il2cpp_domain_get || !il2cpp_domain_get_assemblies || !il2cpp_assembly_get_image || !image_get_name) {
-            s_DumpStatus = "Gagal: fungsi IL2CPP tidak ditemukan";
+            s_DumpStatus = "Failed: IL2CPP functions not found";
             return false;
         }
 
         std::string path = config::GetActiveConfigPath() + "/dump_classes.txt";
         FILE* f = fopen(path.c_str(), "w");
-        if (!f) { s_DumpStatus = "Gagal menulis: dump_classes.txt"; return false; }
+        if (!f) { s_DumpStatus = "Failed to write: dump_classes.txt"; return false; }
 
         // Kelas yang didump penuh (nama persis)
         static const char* kFullClasses[] = {
@@ -487,7 +507,7 @@ namespace speedrun {
 
         fclose(f);
         char buf[160];
-        snprintf(buf, sizeof(buf), "Selesai: %d kelas ter-dump. File: dump_classes.txt", dumped);
+        snprintf(buf, sizeof(buf), "Done: %d classes dumped. File: dump_classes.txt", dumped);
         s_DumpStatus = buf;
         Logger::Log("SPEEDRUN", LOG_OK, "Class dump written: %s", path.c_str());
         return true;
@@ -512,9 +532,9 @@ namespace speedrun {
         edited::checkbox("Auto-Unlock Shop Items", &autoUnlockShop);
         if (edited::buttonn("Unlock All Shop Now", ImVec2(-1, 38 * sc))) {
             int n = UnlockAllShop();
-            if (n < 0) s_Status = "Gagal membuka item shop";
-            else if (n == 0) s_Status = "Semua item sudah terbuka";
-            else s_Status = std::to_string(n) + " item shop dibuka";
+            if (n < 0) s_Status = "Failed to unlock shop items";
+            else if (n == 0) s_Status = "All shop items are already unlocked";
+            else s_Status = std::to_string(n) + " shop item(s) unlocked";
         }
         if (!s_Status.empty()) ImGui::TextWrapped("%s", s_Status.c_str());
 
@@ -531,7 +551,7 @@ namespace speedrun {
         ImGui::Spacing();
         edited::checkbox("Extra Traps", &extraTraps);
         edited::checkbox("Lava Mode", &lavaMode);
-        ImGui::TextWrapped("%s", "Berlaku saat run dimulai. Setelah mengubah, restart run.");
+        ImGui::TextWrapped("%s", "Applied when a run starts. Restart the run after changing.");
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
@@ -566,13 +586,13 @@ namespace speedrun {
         edited::combo("Grandpa Vase Location", &vaseChoice, s_VasePtrs.data(), (int)s_VasePtrs.size());
 
         ImGui::Spacing();
-        ImGui::TextWrapped("%s", "Pilihan RNG diterapkan 2 detik setelah run dimulai. Ubah lalu restart run agar berlaku.");
+        ImGui::TextWrapped("%s", "RNG choices apply 2 seconds after a run starts. Change them, then restart the run.");
 
         ImGui::Spacing();
         edited::colortext(ImVec4(1, 1, 1, 1), "Developer Tools");
         ImGui::Separator();
         ImGui::Spacing();
-        ImGui::TextWrapped("%s", "Dump Game Classes menulis dump_classes.txt ke folder data game, untuk melengkapi fitur berikutnya (spawn Granny/Grandpa, elevator box, auto skip).");
+        ImGui::TextWrapped("%s", "Dump Game Classes writes dump_classes.txt to the game data folder. Send it to add the remaining features.");
         if (edited::buttonn("Dump Game Classes", ImVec2(-1, 38 * sc))) {
             DumpClasses();
         }

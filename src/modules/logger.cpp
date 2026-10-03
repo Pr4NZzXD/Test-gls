@@ -59,10 +59,10 @@ namespace Logger {
 
         // Строка поиска и управление
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 210.0f * g_UiScale);
-        ImGui::InputTextWithHint("##logFlt", "Поиск в логах (Search code / traces)...", s_Filter, sizeof(s_Filter));
+        ImGui::InputTextWithHint("##logFlt", "Search logs...", s_Filter, sizeof(s_Filter));
 
         ImGui::SameLine();
-        if (ImGui::Button(" 📋 Скопировать ", ImVec2(100.0f * g_UiScale, 28.0f * g_UiScale))) {
+        if (ImGui::Button(" Copy ", ImVec2(100.0f * g_UiScale, 28.0f * g_UiScale))) {
             std::string allText = "";
             for (auto& l : logs) {
                 allText += "[" + l.tag + "] " + l.text + "\n";
@@ -71,7 +71,7 @@ namespace Logger {
         }
 
         ImGui::SameLine();
-        if (ImGui::Button(" 🗑 Очистить ", ImVec2(95.0f * g_UiScale, 28.0f * g_UiScale))) {
+        if (ImGui::Button(" Clear ", ImVec2(95.0f * g_UiScale, 28.0f * g_UiScale))) {
             Clear();
         }
 

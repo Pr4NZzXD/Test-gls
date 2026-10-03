@@ -25,6 +25,10 @@ namespace speedrun {
     void DrawRestartButton();
     void DrawMenu(float colW, float colH, float colGap);
 
+    bool IsGameplay();                 // true jika scene aktif adalah "Scene" (sedang bermain)
+    bool IsPaused();                   // true jika Time.timeScale == 0
+    void RestartRun(bool allowWhilePaused);   // sama seperti Paused.RestartP()
+
     int  UnlockAllShop();     // jumlah item baru dibuka (-1 = gagal)
     bool DumpClasses();       // tulis dump_classes.txt ke folder data game
 }
