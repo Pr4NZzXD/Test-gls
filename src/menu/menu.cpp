@@ -23,6 +23,7 @@
 #include <string>
 #include <ctime>
 #include <cstdlib>
+#include <cstdio>
 
 bool g_ShowMenu = false;
 bool g_InitImGui = false;
@@ -36,6 +37,7 @@ float g_AccentColor[4] = { 112.f/255.f, 110.f/255.f, 215.f/255.f, 1.0f };
 int g_Language = 1; // Чистый английский
 bool g_SnowEnabled = true;
 bool g_WindowGlowEnabled = true;
+bool g_ShowFPS = true;
 float g_BackgroundDim = 0.65f;
 
 static bool g_DevModeUnlocked = false;
@@ -122,12 +124,14 @@ void watqermark() {
     float round = size * 0.34f;
     ImVec4 ac = c::accent;
 
-    // cahaya luar
-    for (int i = 3; i >= 1; i--) {
-        float ex = (float)i * 3.0f * sc;
-        ImVec4 g = ac; g.w = 0.10f * pulse;
-        draw->AddRectFilled(ImVec2(bg_min.x - ex, bg_min.y - ex), ImVec2(bg_max.x + ex, bg_max.y + ex),
-                            ImGui::GetColorU32(g), round + ex);
+    // cahaya luar (opsional dari Settings)
+    if (g_WindowGlowEnabled) {
+        for (int i = 3; i >= 1; i--) {
+            float ex = (float)i * 3.0f * sc;
+            ImVec4 g = ac; g.w = 0.10f * pulse;
+            draw->AddRectFilled(ImVec2(bg_min.x - ex, bg_min.y - ex), ImVec2(bg_max.x + ex, bg_max.y + ex),
+                                ImGui::GetColorU32(g), round + ex);
+        }
     }
     // badan hitam
     draw->AddRectFilled(bg_min, bg_max, IM_COL32(6, 6, 9, 245), round);
@@ -238,6 +242,8 @@ void HandleMenuDragging(ImVec2& wPos, ImVec2 wSize, ImVec2 fullSize) {
 
 void SetupPremiumStyle(float scale) {
     menuscale::menuscale = scale;
+    menuscale::menuscalee = scale;
+    c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], g_AccentColor[3]);
 }
 
 struct TabDef {
@@ -288,6 +294,7 @@ void DrawMenu() {
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, menuAnimAlpha);
 
     // Tema hitam
+    ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.02f, 0.02f, 0.02f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.02f, 0.02f, 0.02f, 1.0f));
@@ -300,9 +307,19 @@ void DrawMenu() {
     ImVec2 curSize = ImGui::GetWindowSize();
 
     // Разделитель сайдбара
-    float sidebarW = 150.0f * menuscale::menuscale;
+    float sidebarW = g_HomeBarWidth * menuscale::menuscale;
     draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(30, 30, 30, 255));
     draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale), IM_COL32(0, 0, 0, 255), 6, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
+
+    // FPS / frame time indicator
+    if (g_ShowFPS) {
+        char fpsBuf[64];
+        snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS  |  %.1f ms", g_RealFPS, g_FrameTimeMs);
+        ImVec2 fpsSz = ImGui::CalcTextSize(fpsBuf);
+        draw->AddText(ImVec2(pos.x + curSize.x - fpsSz.x - 12.0f * menuscale::menuscale,
+                             pos.y + (38.0f * menuscale::menuscale - fpsSz.y) * 0.5f),
+                      IM_COL32(150, 150, 160, 255), fpsBuf);
+    }
 
     // Judul menu
     const char* kTitle = "Granny Legacy Mod menu";
@@ -578,9 +595,39 @@ void DrawMenu() {
         ImGui::Spacing();
 
         edited::checkbox("Snow Effect", &g_SnowEnabled);
+        edited::checkbox("Window Glow", &g_WindowGlowEnabled);
+        edited::checkbox("Show FPS Counter", &g_ShowFPS);
         edited::slider_float("Background Dim", &g_BackgroundDim, 0.0f, 1.0f, "%.2f");
         edited::slider_float("Menu Scale", &menuscale::menuscalee, 0.5f, 1.5f, "%.2f");
-        if (edited::buttonn("Apply Scale", ImVec2(-1, 40 * menuscale::menuscale))) menuscale::menuscale = menuscale::menuscalee;
+        edited::slider_float("Sidebar Width", &g_HomeBarWidth, 120.0f, 240.0f, "%.0f px");
+        edited::slider_float("Scrollbar Size", &g_ScrollbarSize, 6.0f, 20.0f, "%.0f px");
+        if (ImGui::ColorEdit3("Accent Color", g_AccentColor, ImGuiColorEditFlags_NoInputs)) {
+            c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], 1.0f);
+            g_AccentColor[3] = 1.0f;
+        }
+        const char* langs[] = { "Russian", "English" };
+        edited::combo("Language", &g_Language, langs, 2);
+        if (edited::buttonn("Apply UI Settings", ImVec2(-1, 40 * menuscale::menuscale))) {
+            menuscale::menuscale = menuscale::menuscalee;
+            c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], g_AccentColor[3]);
+            ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
+        }
+        if (edited::buttonn("Reset UI Settings", ImVec2(-1, 40 * menuscale::menuscale))) {
+            g_SnowEnabled = true;
+            g_WindowGlowEnabled = true;
+            g_ShowFPS = true;
+            g_BackgroundDim = 0.65f;
+            g_HomeBarWidth = 180.0f;
+            g_ScrollbarSize = 10.0f;
+            g_AccentColor[0] = 112.0f / 255.0f;
+            g_AccentColor[1] = 110.0f / 255.0f;
+            g_AccentColor[2] = 215.0f / 255.0f;
+            g_AccentColor[3] = 1.0f;
+            menuscale::menuscalee = 1.0f;
+            menuscale::menuscale = 1.0f;
+            c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], 1.0f);
+            ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize;
+        }
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
