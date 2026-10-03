@@ -9,6 +9,7 @@
 #include "auto_farm.h"
 #include "menu.h"
 #include "Aim.h"
+#include "speedrun.h"
 
 #include <cstdio>
 #include <cstring>
@@ -160,6 +161,11 @@ namespace config {
         o += Fmt("electricDarts=%d\n", player_mods::electricDarts ? 1 : 0);
         o += Fmt("explosiveShotgun=%d\n", player_mods::explosiveShotgun ? 1 : 0);
 
+        o += Fmt("autoUnlockShop=%d\n", speedrun::autoUnlockShop ? 1 : 0);
+        o += Fmt("restartButton=%d\n", speedrun::restartButton ? 1 : 0);
+        o += Fmt("restartPosX=%.1f\n", speedrun::restartPosX);
+        o += Fmt("restartPosY=%.1f\n", speedrun::restartPosY);
+
         o += Fmt("speedhackEnabled=%d\n", speedhack::enabled ? 1 : 0);
         o += Fmt("speedMultiplier=%.2f\n", speedhack::multiplier);
 
@@ -252,6 +258,11 @@ namespace config {
             else if (sscanf(line, "infiniteAmmo=%d", &iVal) == 1) player_mods::infiniteAmmo = (iVal != 0);
             else if (sscanf(line, "electricDarts=%d", &iVal) == 1) player_mods::electricDarts = (iVal != 0);
             else if (sscanf(line, "explosiveShotgun=%d", &iVal) == 1) player_mods::explosiveShotgun = (iVal != 0);
+
+            else if (sscanf(line, "autoUnlockShop=%d", &iVal) == 1) speedrun::autoUnlockShop = (iVal != 0);
+            else if (sscanf(line, "restartButton=%d", &iVal) == 1) speedrun::restartButton = (iVal != 0);
+            else if (sscanf(line, "restartPosX=%f", &fVal) == 1) speedrun::restartPosX = fVal;
+            else if (sscanf(line, "restartPosY=%f", &fVal) == 1) speedrun::restartPosY = fVal;
 
             else if (sscanf(line, "speedhackEnabled=%d", &iVal) == 1) speedhack::enabled = (iVal != 0);
             else if (sscanf(line, "speedMultiplier=%f", &fVal) == 1) speedhack::multiplier = fVal;
