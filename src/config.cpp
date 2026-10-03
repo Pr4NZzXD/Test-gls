@@ -22,7 +22,7 @@
 #include <cstdarg>
 
 namespace config {
-    char statusText[64] = "Готов / Ready";
+    char statusText[64] = "Ready";
     char currentConfigName[64] = "kahanium.cfg";
     std::vector<std::string> foundConfigs;
     const char* configFolder = "/sdcard/Android/data/com.OmegaMegaGigalIntel.GrannyLegacy/files";
@@ -116,7 +116,16 @@ namespace config {
         o += Fmt("language=%d\n", g_Language);
         o += Fmt("snowEnabled=%d\n", g_SnowEnabled ? 1 : 0);
         o += Fmt("glowEnabled=%d\n", g_WindowGlowEnabled ? 1 : 0);
+        o += Fmt("showFPS=%d\n", g_ShowFPS ? 1 : 0);
         o += Fmt("backgroundDim=%.2f\n", g_BackgroundDim);
+        o += Fmt("menuAlpha=%.2f\n", g_MenuAlpha);
+        o += Fmt("cornerRounding=%.1f\n", g_CornerRounding);
+        o += Fmt("popupScale=%.2f\n", g_PopupScale);
+        o += Fmt("popupAlpha=%.2f\n", g_PopupAlpha);
+        o += Fmt("hideGInGame=%d\n", g_HideGInGame ? 1 : 0);
+        o += Fmt("menuBgColor=%.3f,%.3f,%.3f\n", g_MenuBgColor[0], g_MenuBgColor[1], g_MenuBgColor[2]);
+        o += Fmt("popupColor=%.3f,%.3f,%.3f\n", g_PopupColor[0], g_PopupColor[1], g_PopupColor[2]);
+        o += Fmt("popupBgColor=%.3f,%.3f,%.3f\n", g_PopupBgColor[0], g_PopupBgColor[1], g_PopupBgColor[2]);
 
         o += Fmt("enemiesEnabled=%d\n", esp_enemies::enabled ? 1 : 0);
         o += Fmt("targetGranny=%d\n", esp_enemies::targetGranny ? 1 : 0);
@@ -150,6 +159,10 @@ namespace config {
         o += Fmt("grannySmoothness=%.2f\n", aim::grannySmoothness);
         o += Fmt("itemAimEnabled=%d\n", aim::itemAimEnabled ? 1 : 0);
         o += Fmt("itemSmoothness=%.2f\n", aim::itemSmoothness);
+        o += Fmt("itemAimDistance=%.1f\n", aim::itemAimDistance);
+        for (const std::string& nm : aim::ItemTypeNames()) {
+            o += Fmt("itemType_%s=%d\n", nm.c_str(), *aim::ItemTypeEnabledPtr(nm) ? 1 : 0);
+        }
 
         o += Fmt("disableDarkerFog=%d\n", reshade::disableDarkerFog ? 1 : 0);
         o += Fmt("disableLightmaps=%d\n", reshade::disableLightmaps ? 1 : 0);
@@ -214,9 +227,10 @@ namespace config {
             float c0, c1, c2, c3;
             char keyBuf[128];
 
-            if (sscanf(line, "language=%d", &iVal) == 1) g_Language = iVal;
+            if (sscanf(line, "language=%d", &iVal) == 1) g_Language = 1;   // hanya Inggris
             else if (sscanf(line, "snowEnabled=%d", &iVal) == 1) g_SnowEnabled = (iVal != 0);
             else if (sscanf(line, "glowEnabled=%d", &iVal) == 1) g_WindowGlowEnabled = (iVal != 0);
+            else if (sscanf(line, "showFPS=%d", &iVal) == 1) g_ShowFPS = (iVal != 0);
             else if (sscanf(line, "backgroundDim=%f", &fVal) == 1) g_BackgroundDim = fVal;
 
             else if (sscanf(line, "enemiesEnabled=%d", &iVal) == 1) esp_enemies::enabled = (iVal != 0);
@@ -254,6 +268,16 @@ namespace config {
             else if (sscanf(line, "grannySmoothness=%f", &fVal) == 1) aim::grannySmoothness = fVal;
             else if (sscanf(line, "itemAimEnabled=%d", &iVal) == 1) aim::itemAimEnabled = (iVal != 0);
             else if (sscanf(line, "itemSmoothness=%f", &fVal) == 1) aim::itemSmoothness = fVal;
+            else if (sscanf(line, "itemAimDistance=%f", &fVal) == 1) aim::itemAimDistance = fVal;
+            else if (sscanf(line, "itemType_%127[^=]=%d", keyBuf, &iVal) == 2) aim::SetItemTypeEnabled(keyBuf, iVal != 0);
+            else if (sscanf(line, "menuAlpha=%f", &fVal) == 1) g_MenuAlpha = fVal;
+            else if (sscanf(line, "cornerRounding=%f", &fVal) == 1) g_CornerRounding = fVal;
+            else if (sscanf(line, "popupScale=%f", &fVal) == 1) g_PopupScale = fVal;
+            else if (sscanf(line, "popupAlpha=%f", &fVal) == 1) g_PopupAlpha = fVal;
+            else if (sscanf(line, "hideGInGame=%d", &iVal) == 1) g_HideGInGame = (iVal != 0);
+            else if (sscanf(line, "menuBgColor=%f,%f,%f", &c0, &c1, &c2) == 3) { g_MenuBgColor[0] = c0; g_MenuBgColor[1] = c1; g_MenuBgColor[2] = c2; }
+            else if (sscanf(line, "popupColor=%f,%f,%f", &c0, &c1, &c2) == 3) { g_PopupColor[0] = c0; g_PopupColor[1] = c1; g_PopupColor[2] = c2; }
+            else if (sscanf(line, "popupBgColor=%f,%f,%f", &c0, &c1, &c2) == 3) { g_PopupBgColor[0] = c0; g_PopupBgColor[1] = c1; g_PopupBgColor[2] = c2; }
 
             else if (sscanf(line, "disableDarkerFog=%d", &iVal) == 1) reshade::disableDarkerFog = (iVal != 0);
             else if (sscanf(line, "disableLightmaps=%d", &iVal) == 1) reshade::disableLightmaps = (iVal != 0);
@@ -319,7 +343,7 @@ namespace config {
         }
         if (ParseConfigFile(autoPath)) {
             SetupPremiumStyle(g_UiScale);
-            snprintf(statusText, sizeof(statusText), "Загружено / Loaded");
+            snprintf(statusText, sizeof(statusText), "Loaded");
         }
         s_LastAutoSaved = BuildConfigText();
     }
@@ -360,7 +384,7 @@ namespace config {
         std::string fullPath = folder + "/" + targetFile;
         FILE* f = fopen(fullPath.c_str(), "w");
         if (!f) {
-            snprintf(statusText, sizeof(statusText), "Ошибка записи: %s", targetFile.c_str());
+            snprintf(statusText, sizeof(statusText), "Write error: %s", targetFile.c_str());
             return;
         }
 
@@ -369,7 +393,7 @@ namespace config {
         fclose(f);
 
         RefreshConfigList();
-        snprintf(statusText, sizeof(statusText), "Сохранено: %s", targetFile.c_str());
+        snprintf(statusText, sizeof(statusText), "Saved: %s", targetFile.c_str());
     }
 
     void LoadConfig(const char* customName) {
@@ -381,11 +405,11 @@ namespace config {
 
         std::string fullPath = folder + "/" + targetFile;
         if (!ParseConfigFile(fullPath)) {
-            snprintf(statusText, sizeof(statusText), "Не найден: %s", targetFile.c_str());
+            snprintf(statusText, sizeof(statusText), "Not found: %s", targetFile.c_str());
             return;
         }
 
         SetupPremiumStyle(g_UiScale);
-        snprintf(statusText, sizeof(statusText), "Загружено: %s", targetFile.c_str());
+        snprintf(statusText, sizeof(statusText), "Loaded: %s", targetFile.c_str());
     }
 }
