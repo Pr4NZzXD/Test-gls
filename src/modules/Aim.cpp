@@ -1,4 +1,4 @@
-#include "Aim.h"
+#include "aim.h"
 #include "player_mods.h"
 #include "il2cpp_api.h"
 #include "logger.h"
@@ -25,6 +25,7 @@ namespace aim {
     bool showItemSettings = false;
     std::vector<LiveItemTarget> liveItems;
     static void* s_LockedItemTr = nullptr;
+    static void* s_HandHoldTr = nullptr;
     static char s_ItemFilter[64] = "";
     static std::string s_Status = "";
     static float s_StatusTimer = 0.0f;
@@ -38,6 +39,7 @@ namespace aim {
         s_CachedMobileFPS = nullptr;
         s_MobileFPSClass = nullptr;
         s_LockedItemTr = nullptr;
+        s_HandHoldTr = nullptr;
         liveItems.clear();
     }
 
@@ -122,6 +124,25 @@ namespace aim {
                 if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    // Cek apakah pemain sedang memegang item/senjata apa pun di tangan
+    bool IsPlayerHoldingAnyItem() {
+        if (!s_HandHoldTr || !IsNativeObjectAlive(s_HandHoldTr)) {
+            s_HandHoldTr = FindTransformByPath("PlayerStuff/HandHoldObjects");
+        }
+        if (!s_HandHoldTr || !IsNativeObjectAlive(s_HandHoldTr)) return false;
+
+        int childCount = SafeGetChildCount(s_HandHoldTr);
+        for (int i = 0; i < childCount; i++) {
+            void* childTr = SafeGetChild(s_HandHoldTr, i);
+            if (!childTr || !IsNativeObjectAlive(childTr)) continue;
+            void* go = oComponentGetGameObject ? oComponentGetGameObject(childTr) : nullptr;
+            if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) {
+                return true;
             }
         }
         return false;
@@ -365,6 +386,12 @@ namespace aim {
         }
 
         // 2. АИМБОТ НА ПРЕДМЕТЫ
+        // Jika item sudah dipegang pemain, lepas kunci dan biarkan kamera bebas
+        if ((itemAimEnabled || s_LockedItemTr) && IsPlayerHoldingAnyItem()) {
+            s_LockedItemTr = nullptr;
+            return;
+        }
+
         if (s_LockedItemTr && IsNativeObjectAlive(s_LockedItemTr)) {
             void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(s_LockedItemTr) : nullptr;
             if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) {
