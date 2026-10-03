@@ -41,6 +41,8 @@ set(KAHANIUM_SOURCES
         src/modules/logger.cpp
         src/modules/logger.h
         src/modules/macro.cpp
+        src/modules/speedrun.cpp
+        src/modules/speedrun.h
         src/modules/macro.h
         src/menu/ui_theme.h
         src/menu/ui_anim.cpp
