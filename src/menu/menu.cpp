@@ -40,6 +40,14 @@ bool g_WindowGlowEnabled = true;
 bool g_ShowFPS = true;
 float g_BackgroundDim = 0.65f;
 
+// --- TAMBAHAN VARIABEL UNTUK KUSTOMISASI UI ---
+float g_MenuAlpha = 0.90f; // Transparansi Background Menu Utama
+float g_CornerRounding = 12.0f; // Sudut melengkung untuk Menu Utama
+float g_PopupScale = 1.0f; // Skala khusus untuk tombol Pop-Up "G"
+float g_PopupAlpha = 0.85f; // Transparansi tombol Pop-Up "G"
+bool g_HideGInGame = true; // Apakah tombol G akan hilang saat main dan tidak pause
+// ------------------------------------------------------------------
+
 static bool g_DevModeUnlocked = false;
 static char s_DevPinInput[32] = "";
 
@@ -82,16 +90,27 @@ void UpdateAndDrawSnow() {
     }
 }
 
-// Tombol mengambang (squircle) dengan logo "G" - tap untuk buka/tutup menu, tahan lalu geser untuk memindahkan
+// Tombol mengambang (squircle) dengan logo "G" - tap untuk buka/tutup menu, tahan lalu geser для memindahkan
 void watqermark() {
-    float sc = menuscale::menuscale;
+    // Simulasi Cek Pause/In-Game (Hubungkan logika ini dengan IL2CPP untuk hasil akurat)
+    // misal: bool isPaused = UnityEngine_Time_get_timeScale() == 0;
+    bool isPaused = false; // Harus diupdate dari engine
+    bool isInGame = false; // Harus diupdate jika player sedang di map permainan
+    
+    // Fitur Menghilang Saat Game Dimulai (kecuali Pause)
+    if (g_HideGInGame && isInGame && !isPaused && !g_ShowMenu) {
+        return; 
+    }
+
+    // Menggunakan g_PopupScale untuk mengatur besar tombol popup G
+    float sc = menuscale::menuscale * g_PopupScale;
     float size = 54.0f * sc;
 
     static ImVec2 s_WmPos(-1.0f, -1.0f);
     static bool s_WmMoved = false;
     if (s_WmPos.x < 0.0f) s_WmPos = ImVec2(20.0f * sc, 16.0f * sc);
 
-    ImVec2 boxSize = ImVec2(size, size);
+    ImVec2 boxSize = ImVec2(size * (g_HideGInGame && isPaused ? 2.2f : 1.0f), size); // Expand box if Restart button is shown
 
     // Jaga agar tidak keluar layar
     ImVec2 dispSize = ImGui::GetIO().DisplaySize;
@@ -101,11 +120,15 @@ void watqermark() {
     ImVec2 bg_min = s_WmPos;
     ImVec2 bg_max = ImVec2(s_WmPos.x + size, s_WmPos.y + size);
 
+    // Terapkan Transparansi untuk Tombol G
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, g_PopupAlpha);
+
     ImGui::SetNextWindowPos(bg_min);
     ImGui::SetNextWindowSize(boxSize);
     ImGui::Begin("##wm_click_main", nullptr,
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
-    bool pressed = ImGui::InvisibleButton("##wm_btn", boxSize);
+    
+    bool pressed = ImGui::InvisibleButton("##wm_btn", ImVec2(size, size));
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 8.0f * sc)) {
         s_WmPos.x += ImGui::GetIO().MouseDelta.x;
         s_WmPos.y += ImGui::GetIO().MouseDelta.y;
@@ -114,8 +137,19 @@ void watqermark() {
     if (pressed && !s_WmMoved) {
         g_ShowMenu = !g_ShowMenu;
     }
+
+    // Opsi: Tombol Restart jika sedang pause (Di sebelah tombol G)
+    if (g_HideGInGame && isPaused) {
+        ImGui::SameLine();
+        if (ImGui::InvisibleButton("##wm_btn_restart", ImVec2(size, size))) {
+            // Logika Restart IL2CPP
+        }
+    }
+
     if (!ImGui::IsMouseDown(0)) s_WmMoved = false;
     ImGui::End();
+    
+    ImGui::PopStyleVar(); // Pop Alpha
 
     // ---------- gambar tombol ----------
     ImDrawList* draw = ImGui::GetForegroundDrawList();
@@ -124,32 +158,36 @@ void watqermark() {
     float round = size * 0.34f;
     ImVec4 ac = c::accent;
 
+    // Transparansi manual untuk rendering DrawList
+    int alphaA = (int)(255 * g_PopupAlpha);
+    int alphaBody = (int)(245 * g_PopupAlpha);
+    
     // cahaya luar (opsional dari Settings)
     if (g_WindowGlowEnabled) {
         for (int i = 3; i >= 1; i--) {
             float ex = (float)i * 3.0f * sc;
-            ImVec4 g = ac; g.w = 0.10f * pulse;
+            ImVec4 g = ac; g.w = 0.10f * pulse * g_PopupAlpha;
             draw->AddRectFilled(ImVec2(bg_min.x - ex, bg_min.y - ex), ImVec2(bg_max.x + ex, bg_max.y + ex),
                                 ImGui::GetColorU32(g), round + ex);
         }
     }
     // badan hitam
-    draw->AddRectFilled(bg_min, bg_max, IM_COL32(6, 6, 9, 245), round);
+    draw->AddRectFilled(bg_min, bg_max, IM_COL32(6, 6, 9, alphaBody), round);
     // cincin aksen
-    ImVec4 ring = ac; ring.w = 0.55f + 0.45f * pulse;
+    ImVec4 ring = ac; ring.w = (0.55f + 0.45f * pulse) * g_PopupAlpha;
     draw->AddRect(bg_min, bg_max, ImGui::GetColorU32(ring), round, 0, 2.0f * sc);
     // cincin dalam tipis
-    ImVec4 inner = ac; inner.w = 0.18f;
+    ImVec4 inner = ac; inner.w = 0.18f * g_PopupAlpha;
     float in = 4.0f * sc;
     draw->AddRect(ImVec2(bg_min.x + in, bg_min.y + in), ImVec2(bg_max.x - in, bg_max.y - in),
                   ImGui::GetColorU32(inner), round - in, 0, 1.0f * sc);
 
-    // logo "G": busur hampir penuh + palang ke dalam, dengan efek glow
+    // logo "G"
     ImVec2 ctr = ImVec2((bg_min.x + bg_max.x) * 0.5f, (bg_min.y + bg_max.y) * 0.5f);
     float r = size * 0.24f;
-    ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, 1.0f);
-    ImVec4 glow1 = ac; glow1.w = 0.22f * pulse;
-    ImVec4 glow2 = ac; glow2.w = 0.55f;
+    ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, g_PopupAlpha);
+    ImVec4 glow1 = ac; glow1.w = 0.22f * pulse * g_PopupAlpha;
+    ImVec4 glow2 = ac; glow2.w = 0.55f * g_PopupAlpha;
 
     const float aEnd = IM_PI * 1.75f;
     float widths[3]  = { 8.0f * sc, 5.2f * sc, 3.2f * sc };
@@ -159,8 +197,26 @@ void watqermark() {
         draw->PathStroke(colors[k], 0, widths[k]);
         draw->AddLine(ImVec2(ctr.x + r, ctr.y), ImVec2(ctr.x + r * 0.10f, ctr.y), colors[k], widths[k]);
     }
-    // percikan kecil di ujung atas
-    draw->AddCircleFilled(ImVec2(ctr.x + r * 0.85f, ctr.y - r * 0.95f), 2.2f * sc, IM_COL32(255, 255, 255, 235));
+    draw->AddCircleFilled(ImVec2(ctr.x + r * 0.85f, ctr.y - r * 0.95f), 2.2f * sc, IM_COL32(255, 255, 255, alphaBody));
+
+    // Render Tombol Restart secara Visual (Jika sedang Pause)
+    if (g_HideGInGame && isPaused) {
+        ImVec2 r_min = ImVec2(bg_max.x + 10.0f * sc, bg_min.y);
+        ImVec2 r_max = ImVec2(r_min.x + size, r_min.y + size);
+        ImVec2 r_ctr = ImVec2(r_min.x + size * 0.5f, r_min.y + size * 0.5f);
+
+        draw->AddRectFilled(r_min, r_max, IM_COL32(6, 6, 9, alphaBody), round);
+        draw->AddRect(r_min, r_max, ImGui::GetColorU32(ring), round, 0, 2.0f * sc);
+        
+        // Ikon panah melingkar untuk restart (Sederhana)
+        draw->PathArcTo(r_ctr, r, IM_PI * 0.25f, IM_PI * 1.75f, 30);
+        draw->PathStroke(ImGui::GetColorU32(core), 0, 3.2f * sc);
+        draw->AddTriangleFilled(
+            ImVec2(r_ctr.x + r, r_ctr.y),
+            ImVec2(r_ctr.x + r - 4.0f*sc, r_ctr.y - 6.0f*sc),
+            ImVec2(r_ctr.x + r + 4.0f*sc, r_ctr.y - 6.0f*sc),
+            ImGui::GetColorU32(core));
+    }
 }
 
 // Запуск ZArchiver
@@ -244,6 +300,13 @@ void SetupPremiumStyle(float scale) {
     menuscale::menuscale = scale;
     menuscale::menuscalee = scale;
     c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], g_AccentColor[3]);
+    
+    // Terapkan sudut melengkung ke style bawaan
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = g_CornerRounding;
+    style.ChildRounding = g_CornerRounding;
+    style.FrameRounding = g_CornerRounding;
+    style.PopupRounding = g_CornerRounding;
 }
 
 struct TabDef {
@@ -259,10 +322,15 @@ void DrawMenu() {
     float dt = io.DeltaTime;
 
     config::AutoSaveTick();  // simpan otomatis jika pengaturan berubah
+    
+    // Terapkan pembulatan secara realtime agar bisa diubah di slider
+    ImGui::GetStyle().WindowRounding = g_CornerRounding;
+    ImGui::GetStyle().ChildRounding = g_CornerRounding;
+    ImGui::GetStyle().FrameRounding = g_CornerRounding;
 
     static float menuAnimAlpha = 0.0f;
     static float menuScaleAnim = 0.0f;
-    menuAnimAlpha = ImLerp(menuAnimAlpha, g_ShowMenu ? 1.0f : 0.0f, dt * 10.0f);
+    menuAnimAlpha = ImLerp(menuAnimAlpha, g_ShowMenu ? g_MenuAlpha : 0.0f, dt * 10.0f); // Pakai g_MenuAlpha для transparan
     menuScaleAnim = ImLerp(menuScaleAnim, g_ShowMenu ? 1.0f : 0.6f, dt * 8.0f);
 
     if (!s_SnowInitialized) InitializeSnow();
@@ -272,7 +340,7 @@ void DrawMenu() {
     }
     if (g_ShowMenu && g_SnowEnabled) UpdateAndDrawSnow();
 
-    watqermark();
+    watqermark(); // Panggil render logo "G"
 
     if (menuAnimAlpha <= 0.01f) return;
 
@@ -293,12 +361,14 @@ void DrawMenu() {
     ImGui::SetNextWindowSize(winSize);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, menuAnimAlpha);
 
-    // Tema hitam
+    // Tema UI Transparan
     ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.02f, 0.02f, 0.02f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.02f, 0.02f, 0.02f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
+    
+    // Ganti background warna jadi tembus pandang berdasarkan g_MenuAlpha
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06f, 0.06f, 0.06f, g_MenuAlpha));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.08f, 0.08f, g_MenuAlpha * 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.08f, 0.08f, 0.08f, g_MenuAlpha));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, g_MenuAlpha * 0.5f));
 
     ImGui::Begin("chuvashi_main", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize);
 
@@ -308,8 +378,11 @@ void DrawMenu() {
 
     // Разделитель сайдбара
     float sidebarW = g_HomeBarWidth * menuscale::menuscale;
-    draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(30, 30, 30, 255));
-    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale), IM_COL32(0, 0, 0, 255), 6, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
+    draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(50, 50, 50, (int)(255 * g_MenuAlpha)));
+    
+    // Top Bar 
+    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale), 
+                        IM_COL32(15, 15, 15, (int)(255 * g_MenuAlpha)), g_CornerRounding, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
 
     // FPS / frame time indicator
     if (g_ShowFPS) {
@@ -354,12 +427,12 @@ void DrawMenu() {
     draw->AddRectFilled(
         ImVec2(pos.x + tabBgAnim.value.x, pos.y + tabBgAnim.value.y),
         ImVec2(pos.x + tabBgAnim.value.x + tabSz.x, pos.y + tabBgAnim.value.y + tabSz.y),
-        IM_COL32(20, 20, 20, 255), 6.0f
+        IM_COL32(30, 30, 30, (int)(255 * g_MenuAlpha)), g_CornerRounding
     );
     draw->AddRect(
         ImVec2(pos.x + tabBgAnim.value.x, pos.y + tabBgAnim.value.y),
         ImVec2(pos.x + tabBgAnim.value.x + tabSz.x, pos.y + tabBgAnim.value.y + tabSz.y),
-        ImGui::GetColorU32(c::tab::tab_outline), 6.0f
+        ImGui::GetColorU32(c::tab::tab_outline), g_CornerRounding
     );
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 5.0f * menuscale::menuscale));
@@ -587,7 +660,7 @@ void DrawMenu() {
         }
         ImGui::EndChild();
     }
-    // TAB 6: SETTINGS
+    // TAB 6: SETTINGS (DITAMBAHKAN KUSTOMISASI BARU DI SINI)
     else if (activeTab == 6) {
         ImGui::BeginChild("##st0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Menu Settings");
@@ -598,7 +671,20 @@ void DrawMenu() {
         edited::checkbox("Window Glow", &g_WindowGlowEnabled);
         edited::checkbox("Show FPS Counter", &g_ShowFPS);
         edited::slider_float("Background Dim", &g_BackgroundDim, 0.0f, 1.0f, "%.2f");
+        
+        // -- FITUR BARU SESUAI PERMINTAAN --
+        edited::slider_float("Menu Alpha / Transparansi", &g_MenuAlpha, 0.1f, 1.0f, "%.2f");
         edited::slider_float("Menu Scale", &menuscale::menuscalee, 0.5f, 1.5f, "%.2f");
+        edited::slider_float("Menu Rounding (Sudut)", &g_CornerRounding, 0.0f, 24.0f, "%.0f px");
+        
+        ImGui::Separator();
+        ImGui::Spacing();
+        edited::colortext(ImVec4(1, 1, 1, 1), "Popup 'G' Settings");
+        edited::slider_float("Popup 'G' Scale", &g_PopupScale, 0.5f, 2.0f, "%.2fx");
+        edited::slider_float("Popup 'G' Alpha", &g_PopupAlpha, 0.1f, 1.0f, "%.2f");
+        edited::checkbox("Auto-Hide 'G' in Gameplay", &g_HideGInGame);
+        // ---------------------------------
+
         edited::slider_float("Sidebar Width", &g_HomeBarWidth, 120.0f, 240.0f, "%.0f px");
         edited::slider_float("Scrollbar Size", &g_ScrollbarSize, 6.0f, 20.0f, "%.0f px");
         if (ImGui::ColorEdit3("Accent Color", g_AccentColor, ImGuiColorEditFlags_NoInputs)) {
@@ -607,6 +693,7 @@ void DrawMenu() {
         }
         const char* langs[] = { "Russian", "English" };
         edited::combo("Language", &g_Language, langs, 2);
+        
         if (edited::buttonn("Apply UI Settings", ImVec2(-1, 40 * menuscale::menuscale))) {
             menuscale::menuscale = menuscale::menuscalee;
             c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], g_AccentColor[3]);
@@ -617,6 +704,11 @@ void DrawMenu() {
             g_WindowGlowEnabled = true;
             g_ShowFPS = true;
             g_BackgroundDim = 0.65f;
+            g_MenuAlpha = 0.90f;
+            g_CornerRounding = 12.0f;
+            g_PopupScale = 1.0f;
+            g_PopupAlpha = 0.85f;
+            g_HideGInGame = true;
             g_HomeBarWidth = 180.0f;
             g_ScrollbarSize = 10.0f;
             g_AccentColor[0] = 112.0f / 255.0f;
