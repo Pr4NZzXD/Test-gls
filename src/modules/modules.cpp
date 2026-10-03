@@ -8,6 +8,7 @@ namespace modules {
         aim::Init();
         Logger::Init();
         macro::Init();
+        speedrun::Init();
     }
 
     void UpdateAll() {
@@ -26,6 +27,8 @@ namespace modules {
 
     void DrawOverlays() {
         esp_enemies::DrawOverlay();
+        speedrun::Update();
+        speedrun::DrawRestartButton();
     }
 
     void ResetOnSceneChange() {
@@ -38,5 +41,6 @@ namespace modules {
         auto_farm::ClearCache();
         scene_explorer::ClearCache();
         macro::ClearCache();
+        speedrun::ClearCache();
     }
 }

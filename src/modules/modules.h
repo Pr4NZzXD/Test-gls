@@ -11,6 +11,7 @@
 #include "logger.h"
 #include "Aim.h"
 #include "macro.h"
+#include "speedrun.h"
 
 namespace modules {
     void InitAll();
