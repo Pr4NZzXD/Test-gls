@@ -80,45 +80,33 @@ void UpdateAndDrawSnow() {
     }
 }
 
-// Ватермарка (popup kecil) - sekarang bisa digeser
+// Tombol mengambang (squircle) dengan logo "G" - tap untuk buka/tutup menu, tahan lalu geser untuk memindahkan
 void watqermark() {
     float sc = menuscale::menuscale;
-    float padding = 10.0f * sc;
+    float size = 54.0f * sc;
 
     static ImVec2 s_WmPos(-1.0f, -1.0f);
     static bool s_WmMoved = false;
     if (s_WmPos.x < 0.0f) s_WmPos = ImVec2(20.0f * sc, 16.0f * sc);
 
-    std::time_t now = std::time(nullptr);
-    std::tm* lt = std::localtime(&now);
-    char time_str[16]{};
-    if (lt) strftime(time_str, sizeof(time_str), "%H:%M", lt);
-    else snprintf(time_str, sizeof(time_str), "23:55");
-
-    char buffer[128];
-    snprintf(buffer, sizeof(buffer), "chuvashi.win | tg @chuvashi_win | %s", time_str);
-
-    ImVec2 text_size = ImGui::CalcTextSize(buffer);
-    ImVec2 boxSize = ImVec2(text_size.x + padding * 2, text_size.y + padding * 2);
+    ImVec2 boxSize = ImVec2(size, size);
 
     // Jaga agar tidak keluar layar
     ImVec2 dispSize = ImGui::GetIO().DisplaySize;
     s_WmPos.x = ImClamp(s_WmPos.x, 0.0f, ImMax(0.0f, dispSize.x - boxSize.x));
     s_WmPos.y = ImClamp(s_WmPos.y, 0.0f, ImMax(0.0f, dispSize.y - boxSize.y));
 
-    float x = s_WmPos.x;
-    float y = s_WmPos.y;
-    ImVec2 bg_min = ImVec2(x, y);
-    ImVec2 bg_max = ImVec2(x + boxSize.x, y + boxSize.y);
+    ImVec2 bg_min = s_WmPos;
+    ImVec2 bg_max = ImVec2(s_WmPos.x + size, s_WmPos.y + size);
 
     ImGui::SetNextWindowPos(bg_min);
     ImGui::SetNextWindowSize(boxSize);
     ImGui::Begin("##wm_click_main", nullptr,
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
     bool pressed = ImGui::InvisibleButton("##wm_btn", boxSize);
-    // Geser: tahan lalu seret. Tap singkat tetap membuka/menutup menu.
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 8.0f * sc)) {
-        s_WmPos += ImGui::GetIO().MouseDelta;
+        s_WmPos.x += ImGui::GetIO().MouseDelta.x;
+        s_WmPos.y += ImGui::GetIO().MouseDelta.y;
         s_WmMoved = true;
     }
     if (pressed && !s_WmMoved) {
@@ -127,10 +115,48 @@ void watqermark() {
     if (!ImGui::IsMouseDown(0)) s_WmMoved = false;
     ImGui::End();
 
+    // ---------- gambar tombol ----------
     ImDrawList* draw = ImGui::GetForegroundDrawList();
-    draw->AddRectFilled(bg_min, bg_max, IM_COL32(0, 0, 0, 240), 6.0f * sc);
-    draw->AddRect(bg_min, bg_max, g_ShowMenu ? ImGui::GetColorU32(c::accent) : IM_COL32(45, 45, 45, 255), 6.0f * sc);
-    draw->AddText(ImVec2(x + padding, y + padding), IM_COL32(230, 230, 245, 255), buffer);
+    float t = (float)ImGui::GetTime();
+    float pulse = g_ShowMenu ? 1.0f : (0.70f + 0.30f * sinf(t * 2.2f));
+    float round = size * 0.34f;
+    ImVec4 ac = c::accent;
+
+    // cahaya luar
+    for (int i = 3; i >= 1; i--) {
+        float ex = (float)i * 3.0f * sc;
+        ImVec4 g = ac; g.w = 0.10f * pulse;
+        draw->AddRectFilled(ImVec2(bg_min.x - ex, bg_min.y - ex), ImVec2(bg_max.x + ex, bg_max.y + ex),
+                            ImGui::GetColorU32(g), round + ex);
+    }
+    // badan hitam
+    draw->AddRectFilled(bg_min, bg_max, IM_COL32(6, 6, 9, 245), round);
+    // cincin aksen
+    ImVec4 ring = ac; ring.w = 0.55f + 0.45f * pulse;
+    draw->AddRect(bg_min, bg_max, ImGui::GetColorU32(ring), round, 0, 2.0f * sc);
+    // cincin dalam tipis
+    ImVec4 inner = ac; inner.w = 0.18f;
+    float in = 4.0f * sc;
+    draw->AddRect(ImVec2(bg_min.x + in, bg_min.y + in), ImVec2(bg_max.x - in, bg_max.y - in),
+                  ImGui::GetColorU32(inner), round - in, 0, 1.0f * sc);
+
+    // logo "G": busur hampir penuh + palang ke dalam, dengan efek glow
+    ImVec2 ctr = ImVec2((bg_min.x + bg_max.x) * 0.5f, (bg_min.y + bg_max.y) * 0.5f);
+    float r = size * 0.24f;
+    ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, 1.0f);
+    ImVec4 glow1 = ac; glow1.w = 0.22f * pulse;
+    ImVec4 glow2 = ac; glow2.w = 0.55f;
+
+    const float aEnd = IM_PI * 1.75f;
+    float widths[3]  = { 8.0f * sc, 5.2f * sc, 3.2f * sc };
+    ImU32  colors[3] = { ImGui::GetColorU32(glow1), ImGui::GetColorU32(glow2), ImGui::GetColorU32(core) };
+    for (int k = 0; k < 3; k++) {
+        draw->PathArcTo(ctr, r, 0.0f, aEnd, 40);
+        draw->PathStroke(colors[k], 0, widths[k]);
+        draw->AddLine(ImVec2(ctr.x + r, ctr.y), ImVec2(ctr.x + r * 0.10f, ctr.y), colors[k], widths[k]);
+    }
+    // percikan kecil di ujung atas
+    draw->AddCircleFilled(ImVec2(ctr.x + r * 0.85f, ctr.y - r * 0.95f), 2.2f * sc, IM_COL32(255, 255, 255, 235));
 }
 
 // Запуск ZArchiver
@@ -189,15 +215,15 @@ static bool menuPosInit = false;
 static bool isDragging = false;
 static ImVec2 dragOffset(0, 0);
 
-void HandleMenuDragging(ImVec2& wPos, ImVec2 wSize) {
+void HandleMenuDragging(ImVec2& wPos, ImVec2 wSize, ImVec2 fullSize) {
     ImGuiIO& io = ImGui::GetIO();
     if (!menuPosInit && g_ShowMenu) {
-        menuPosition = ImVec2((io.DisplaySize.x - wSize.x) * 0.5f, (io.DisplaySize.y - wSize.y) * 0.5f);
+        menuPosition = ImVec2((io.DisplaySize.x - fullSize.x) * 0.5f, (io.DisplaySize.y - fullSize.y) * 0.5f);
         menuPosInit = true;
     }
     if (menuPosInit) wPos = menuPosition;
 
-    ImVec2 dMin = wPos, dMax = ImVec2(wPos.x + wSize.x, wPos.y + 50.0f);
+    ImVec2 dMin = wPos, dMax = ImVec2(wPos.x + wSize.x, wPos.y + 40.0f * menuscale::menuscale);
     bool over = io.MousePos.x >= dMin.x && io.MousePos.x <= dMax.x && io.MousePos.y >= dMin.y && io.MousePos.y <= dMax.y;
     if (over && io.MouseClicked[0] && !isDragging) { isDragging = true; dragOffset = io.MousePos - wPos; }
     if (isDragging) {
@@ -244,16 +270,18 @@ void DrawMenu() {
 
     if (menuAnimAlpha <= 0.01f) return;
 
-    // ЧЕСТНЫЙ ПОЛНОРАЗМЕРНЫЙ ЭКРАН ПОД ТЕЛЕФОН (82% ширины, 85% высоты)
-    float targetW = io.DisplaySize.x * 0.82f;
-    float targetH = io.DisplaySize.y * 0.85f;
-    if (targetW < 850.0f) targetW = 850.0f;
-    if (targetH < 540.0f) targetH = 540.0f;
+    // Menu ringkas: sekitar 60% lebar dan 80% tinggi layar
+    float targetW = io.DisplaySize.x * 0.60f;
+    float targetH = io.DisplaySize.y * 0.80f;
+    if (targetW < 640.0f) targetW = 640.0f;
+    if (targetH < 420.0f) targetH = 420.0f;
+    if (targetW > io.DisplaySize.x * 0.96f) targetW = io.DisplaySize.x * 0.96f;
+    if (targetH > io.DisplaySize.y * 0.96f) targetH = io.DisplaySize.y * 0.96f;
 
     ImVec2 winSize = ImVec2(targetW * menuScaleAnim, targetH * menuScaleAnim);
     ImVec2 winPos = ImVec2((io.DisplaySize.x - winSize.x) * 0.5f, (io.DisplaySize.y - winSize.y) * 0.5f);
 
-    HandleMenuDragging(winPos, winSize);
+    HandleMenuDragging(winPos, winSize, ImVec2(targetW, targetH));
 
     ImGui::SetNextWindowPos(winPos);
     ImGui::SetNextWindowSize(winSize);
@@ -272,18 +300,19 @@ void DrawMenu() {
     ImVec2 curSize = ImGui::GetWindowSize();
 
     // Разделитель сайдбара
-    float sidebarW = 220.0f * menuscale::menuscale;
+    float sidebarW = 150.0f * menuscale::menuscale;
     draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(30, 30, 30, 255));
-    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 44.0f * menuscale::menuscale), IM_COL32(0, 0, 0, 255), 6, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
+    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale), IM_COL32(0, 0, 0, 255), 6, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
 
-    // Заголовок chuvashi
-    ImVec2 tSz = ImGui::CalcTextSize("chuvashi");
-    draw->AddText(ImVec2(pos.x + (curSize.x - tSz.x) * 0.5f, pos.y + 12.0f * menuscale::menuscale), ImGui::GetColorU32(c::accent), "chuvashi");
+    // Judul menu
+    const char* kTitle = "Granny Legacy Mod menu";
+    ImVec2 tSz = ImGui::CalcTextSize(kTitle);
+    draw->AddText(ImVec2(pos.x + (curSize.x - tSz.x) * 0.5f, pos.y + (38.0f * menuscale::menuscale - tSz.y) * 0.5f), ImGui::GetColorU32(c::accent), kTitle);
 
     // ==============================================================
     // ЛЕВЫЙ САЙДБАР (КРУПНЫЕ КНОПКИ 200 x 46px)
     // ==============================================================
-    ImGui::SetCursorPos(ImVec2(10 * menuscale::menuscale, 55 * menuscale::menuscale));
+    ImGui::SetCursorPos(ImVec2(10 * menuscale::menuscale, 48 * menuscale::menuscale));
     ImGui::BeginGroup();
 
     static animation_vec2 tabBgAnim;
@@ -292,6 +321,7 @@ void DrawMenu() {
         { "Visuals",  ICON_FA_EYE },
         { "Player",   ICON_FA_CIRCLE_USER },
         { "World",    ICON_FA_PERSON_RUNNING },
+        { "Speedrun", ICON_FA_PERSON_RUNNING },
         { "Config",   ICON_FA_CLOUD },
         { "Settings", ICON_FA_GEAR }
     };
@@ -301,7 +331,7 @@ void DrawMenu() {
         navTabs.push_back({ "Debugger", ICON_FA_TERMINAL });
     }
 
-    ImVec2 tabSz(sidebarW - 20.0f * menuscale::menuscale, 46.0f * menuscale::menuscale);
+    ImVec2 tabSz(sidebarW - 20.0f * menuscale::menuscale, 38.0f * menuscale::menuscale);
 
     // Анимированная подложка
     draw->AddRectFilled(
@@ -329,10 +359,15 @@ void DrawMenu() {
         ImU32 textCol = isCur ? IM_COL32(255, 255, 255, 255) : IM_COL32(130, 130, 145, 255);
         ImU32 iconCol = isCur ? ImGui::GetColorU32(c::accent) : IM_COL32(130, 130, 145, 255);
 
-        // Иконка
-        draw->AddText(ImVec2(sPos.x + 18 * menuscale::menuscale, sPos.y + 14 * menuscale::menuscale), iconCol, tab.icon);
-        // Текст
-        draw->AddText(ImVec2(sPos.x + 46 * menuscale::menuscale, sPos.y + 14 * menuscale::menuscale), textCol, tab.name);
+        (void)iconCol;
+        // Penanda aksen untuk tab aktif (tanpa ikon, supaya sederhana)
+        if (isCur) {
+            draw->AddRectFilled(ImVec2(sPos.x + 5 * menuscale::menuscale, sPos.y + 10 * menuscale::menuscale),
+                                ImVec2(sPos.x + 8 * menuscale::menuscale, sPos.y + tabSz.y - 10 * menuscale::menuscale),
+                                ImGui::GetColorU32(c::accent), 2.0f);
+        }
+        // Teks tab
+        draw->AddText(ImVec2(sPos.x + 18 * menuscale::menuscale, sPos.y + (tabSz.y - ImGui::GetFontSize()) * 0.5f), textCol, tab.name);
     }
     ImGui::PopStyleVar();
     ImGui::EndGroup();
@@ -340,13 +375,13 @@ void DrawMenu() {
     // ==============================================================
     // ПРАВАЯ ЧАСТЬ: 2 ШИРОКИЕ КОЛОНКИ НА ВЕСЬ ЭКРАН
     // ==============================================================
-    float mainStartX = sidebarW + 16.0f * menuscale::menuscale;
-    float mainW = curSize.x - mainStartX - 16.0f * menuscale::menuscale;
+    float mainStartX = sidebarW + 12.0f * menuscale::menuscale;
+    float mainW = curSize.x - mainStartX - 12.0f * menuscale::menuscale;
     float colGap = 12.0f * menuscale::menuscale;
     float colW = (mainW - colGap) * 0.5f;
-    float colH = curSize.y - 60.0f * menuscale::menuscale;
+    float colH = curSize.y - 54.0f * menuscale::menuscale;
 
-    ImGui::SetCursorPos(ImVec2(mainStartX, 50.0f * menuscale::menuscale));
+    ImGui::SetCursorPos(ImVec2(mainStartX, 46.0f * menuscale::menuscale));
 
     // TAB 0: COMBAT
     if (activeTab == 0) {
@@ -504,8 +539,12 @@ void DrawMenu() {
         if (edited::buttonn("Win Instant (Once)", ImVec2(-1, 40 * menuscale::menuscale))) auto_farm::TriggerInstantWin();
         ImGui::EndChild();
     }
-    // TAB 4: CONFIGS
+    // TAB 4: SPEEDRUN
     else if (activeTab == 4) {
+        speedrun::DrawMenu(colW, colH, colGap);
+    }
+    // TAB 5: CONFIGS
+    else if (activeTab == 5) {
         ImGui::BeginChild("##cfg0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Config Manager");
         ImGui::Separator();
@@ -531,8 +570,8 @@ void DrawMenu() {
         }
         ImGui::EndChild();
     }
-    // TAB 5: SETTINGS
-    else if (activeTab == 5) {
+    // TAB 6: SETTINGS
+    else if (activeTab == 6) {
         ImGui::BeginChild("##st0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Menu Settings");
         ImGui::Separator();
@@ -562,8 +601,8 @@ void DrawMenu() {
         ImGui::EndChild();
     }
     // DEV TABS
-    else if (activeTab == 6 && g_DevModeUnlocked) scene_explorer::DrawMenu();
-    else if (activeTab == 7 && g_DevModeUnlocked) Logger::DrawTab();
+    else if (activeTab == 7 && g_DevModeUnlocked) scene_explorer::DrawMenu();
+    else if (activeTab == 8 && g_DevModeUnlocked) Logger::DrawTab();
 
     ImGui::End();
     ImGui::PopStyleColor(4);
