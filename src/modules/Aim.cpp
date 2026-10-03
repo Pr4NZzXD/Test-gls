@@ -1,4 +1,4 @@
-#include "aim.h"
+#include "Aim.h"
 #include "player_mods.h"
 #include "il2cpp_api.h"
 #include "logger.h"
