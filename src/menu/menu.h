@@ -25,13 +25,24 @@ extern float g_ScrollbarSize;
 extern float g_AccentColor[4];
 
 extern int g_Language;
+// Menu hanya memakai bahasa Inggris
 inline const char* LOC(const char* ru, const char* en) {
-    return (g_Language == 0) ? ru : en;
+    (void)ru;
+    return en;
 }
 
 extern bool g_SnowEnabled;
 extern bool g_WindowGlowEnabled;
+extern bool g_ShowFPS;
 extern float g_BackgroundDim;
+extern float g_MenuAlpha;
+extern float g_CornerRounding;
+extern float g_PopupScale;
+extern float g_PopupAlpha;
+extern bool g_HideGInGame;
+extern float g_MenuBgColor[3];
+extern float g_PopupColor[3];
+extern float g_PopupBgColor[3];
 extern float g_RealFPS;
 extern float g_FrameTimeMs;
 

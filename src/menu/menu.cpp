@@ -45,7 +45,10 @@ float g_MenuAlpha = 0.90f; // Transparansi Background Menu Utama
 float g_CornerRounding = 12.0f; // Sudut melengkung untuk Menu Utama
 float g_PopupScale = 1.0f; // Skala khusus untuk tombol Pop-Up "G"
 float g_PopupAlpha = 0.85f; // Transparansi tombol Pop-Up "G"
-bool g_HideGInGame = true; // Apakah tombol G akan hilang saat main dan tidak pause
+bool g_HideGInGame = true; // Popup "G" disembunyikan saat bermain, muncul lagi saat pause
+float g_MenuBgColor[3] = { 0.06f, 0.06f, 0.06f };                 // warna latar menu
+float g_PopupColor[3] = { 112.f / 255.f, 110.f / 255.f, 215.f / 255.f }; // warna cincin + logo popup
+float g_PopupBgColor[3] = { 6.f / 255.f, 6.f / 255.f, 9.f / 255.f };     // warna latar popup
 // ------------------------------------------------------------------
 
 static bool g_DevModeUnlocked = false;
@@ -90,78 +93,89 @@ void UpdateAndDrawSnow() {
     }
 }
 
-// Tombol mengambang (squircle) dengan logo "G" - tap untuk buka/tutup menu, tahan lalu geser для memindahkan
-void watqermark() {
-    // Simulasi Cek Pause/In-Game (Hubungkan logika ini dengan IL2CPP untuk hasil akurat)
-    // misal: bool isPaused = UnityEngine_Time_get_timeScale() == 0;
-    bool isPaused = false; // Harus diupdate dari engine
-    bool isInGame = false; // Harus diupdate jika player sedang di map permainan
-    
-    // Fitur Menghilang Saat Game Dimulai (kecuali Pause)
-    if (g_HideGInGame && isInGame && !isPaused && !g_ShowMenu) {
-        return; 
-    }
+// Ikon restart (panah melingkar)
+static void DrawRestartIcon(ImDrawList* dl, ImVec2 ctr, float r, ImU32 col, float sc) {
+    dl->PathArcTo(ctr, r, -1.2f, 4.2f, 28);
+    dl->PathStroke(col, 0, 2.8f * sc);
+    float a = 4.2f;
+    ImVec2 tip(ctr.x + cosf(a) * r, ctr.y + sinf(a) * r);
+    ImVec2 dir(-sinf(a), cosf(a));
+    ImVec2 nrm(cosf(a), sinf(a));
+    float hh = 5.5f * sc;
+    dl->AddTriangleFilled(
+        ImVec2(tip.x + dir.x * hh, tip.y + dir.y * hh),
+        ImVec2(tip.x - dir.x * hh * 0.2f + nrm.x * hh * 0.8f, tip.y - dir.y * hh * 0.2f + nrm.y * hh * 0.8f),
+        ImVec2(tip.x - dir.x * hh * 0.2f - nrm.x * hh * 0.8f, tip.y - dir.y * hh * 0.2f - nrm.y * hh * 0.8f),
+        col);
+}
 
-    // Menggunakan g_PopupScale untuk mengatur besar tombol popup G
+// Tombol mengambang (squircle) dengan logo "G".
+// Tap = buka/tutup menu, tahan lalu geser = pindahkan. Disembunyikan saat bermain (opsional)
+// dan muncul lagi saat game di-pause; saat pause muncul juga tombol restart di sampingnya.
+void watqermark() {
+    bool inGame = speedrun::IsGameplay();
+    bool paused = inGame && speedrun::IsPaused();
+
+    if (g_HideGInGame && inGame && !paused && !g_ShowMenu) return;
+
     float sc = menuscale::menuscale * g_PopupScale;
     float size = 54.0f * sc;
+    float gap = 8.0f * sc;
+    bool showRestart = paused;
+    float totalW = showRestart ? (size * 2.0f + gap) : size;
 
     static ImVec2 s_WmPos(-1.0f, -1.0f);
     static bool s_WmMoved = false;
-    if (s_WmPos.x < 0.0f) s_WmPos = ImVec2(20.0f * sc, 16.0f * sc);
+    if (s_WmPos.x < 0.0f) s_WmPos = ImVec2(20.0f * menuscale::menuscale, 16.0f * menuscale::menuscale);
 
-    ImVec2 boxSize = ImVec2(size * (g_HideGInGame && isPaused ? 2.2f : 1.0f), size); // Expand box if Restart button is shown
-
-    // Jaga agar tidak keluar layar
     ImVec2 dispSize = ImGui::GetIO().DisplaySize;
-    s_WmPos.x = ImClamp(s_WmPos.x, 0.0f, ImMax(0.0f, dispSize.x - boxSize.x));
-    s_WmPos.y = ImClamp(s_WmPos.y, 0.0f, ImMax(0.0f, dispSize.y - boxSize.y));
+    s_WmPos.x = ImClamp(s_WmPos.x, 0.0f, ImMax(0.0f, dispSize.x - totalW));
+    s_WmPos.y = ImClamp(s_WmPos.y, 0.0f, ImMax(0.0f, dispSize.y - size));
 
     ImVec2 bg_min = s_WmPos;
     ImVec2 bg_max = ImVec2(s_WmPos.x + size, s_WmPos.y + size);
-
-    // Terapkan Transparansi untuk Tombol G
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, g_PopupAlpha);
+    ImVec2 r_min = ImVec2(bg_max.x + gap, bg_min.y);
+    ImVec2 r_max = ImVec2(r_min.x + size, r_min.y + size);
 
     ImGui::SetNextWindowPos(bg_min);
-    ImGui::SetNextWindowSize(boxSize);
+    ImGui::SetNextWindowSize(ImVec2(totalW, size));
     ImGui::Begin("##wm_click_main", nullptr,
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
-    
+
     bool pressed = ImGui::InvisibleButton("##wm_btn", ImVec2(size, size));
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 8.0f * sc)) {
         s_WmPos.x += ImGui::GetIO().MouseDelta.x;
         s_WmPos.y += ImGui::GetIO().MouseDelta.y;
         s_WmMoved = true;
     }
-    if (pressed && !s_WmMoved) {
-        g_ShowMenu = !g_ShowMenu;
-    }
-
-    // Opsi: Tombol Restart jika sedang pause (Di sebelah tombol G)
-    if (g_HideGInGame && isPaused) {
-        ImGui::SameLine();
-        if (ImGui::InvisibleButton("##wm_btn_restart", ImVec2(size, size))) {
-            // Logika Restart IL2CPP
-        }
-    }
-
+    if (pressed && !s_WmMoved) g_ShowMenu = !g_ShowMenu;
     if (!ImGui::IsMouseDown(0)) s_WmMoved = false;
-    ImGui::End();
-    
-    ImGui::PopStyleVar(); // Pop Alpha
 
-    // ---------- gambar tombol ----------
+    bool restartPressed = false;
+    if (showRestart) {
+        ImGui::SetCursorScreenPos(r_min);
+        restartPressed = ImGui::InvisibleButton("##wm_btn_restart", ImVec2(size, size));
+    }
+    ImGui::End();
+
+    if (restartPressed) speedrun::RestartRun(true);
+
+    // ---------- gambar ----------
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     float t = (float)ImGui::GetTime();
     float pulse = g_ShowMenu ? 1.0f : (0.70f + 0.30f * sinf(t * 2.2f));
     float round = size * 0.34f;
-    ImVec4 ac = c::accent;
+    ImVec4 ac = ImVec4(g_PopupColor[0], g_PopupColor[1], g_PopupColor[2], 1.0f);
+    int alphaBody = (int)(245.0f * g_PopupAlpha);
+    ImU32 bodyCol = IM_COL32((int)(g_PopupBgColor[0] * 255.0f), (int)(g_PopupBgColor[1] * 255.0f),
+                             (int)(g_PopupBgColor[2] * 255.0f), alphaBody);
 
-    // Transparansi manual untuk rendering DrawList
-    int alphaA = (int)(255 * g_PopupAlpha);
-    int alphaBody = (int)(245 * g_PopupAlpha);
-    
+    ImVec4 ring = ac; ring.w = (0.55f + 0.45f * pulse) * g_PopupAlpha;
+    ImVec4 inner = ac; inner.w = 0.18f * g_PopupAlpha;
+    ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, g_PopupAlpha);
+    ImVec4 glow1 = ac; glow1.w = 0.22f * pulse * g_PopupAlpha;
+    ImVec4 glow2 = ac; glow2.w = 0.55f * g_PopupAlpha;
+
     // cahaya luar (opsional dari Settings)
     if (g_WindowGlowEnabled) {
         for (int i = 3; i >= 1; i--) {
@@ -171,13 +185,8 @@ void watqermark() {
                                 ImGui::GetColorU32(g), round + ex);
         }
     }
-    // badan hitam
-    draw->AddRectFilled(bg_min, bg_max, IM_COL32(6, 6, 9, alphaBody), round);
-    // cincin aksen
-    ImVec4 ring = ac; ring.w = (0.55f + 0.45f * pulse) * g_PopupAlpha;
+    draw->AddRectFilled(bg_min, bg_max, bodyCol, round);
     draw->AddRect(bg_min, bg_max, ImGui::GetColorU32(ring), round, 0, 2.0f * sc);
-    // cincin dalam tipis
-    ImVec4 inner = ac; inner.w = 0.18f * g_PopupAlpha;
     float in = 4.0f * sc;
     draw->AddRect(ImVec2(bg_min.x + in, bg_min.y + in), ImVec2(bg_max.x - in, bg_max.y - in),
                   ImGui::GetColorU32(inner), round - in, 0, 1.0f * sc);
@@ -185,10 +194,6 @@ void watqermark() {
     // logo "G"
     ImVec2 ctr = ImVec2((bg_min.x + bg_max.x) * 0.5f, (bg_min.y + bg_max.y) * 0.5f);
     float r = size * 0.24f;
-    ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, g_PopupAlpha);
-    ImVec4 glow1 = ac; glow1.w = 0.22f * pulse * g_PopupAlpha;
-    ImVec4 glow2 = ac; glow2.w = 0.55f * g_PopupAlpha;
-
     const float aEnd = IM_PI * 1.75f;
     float widths[3]  = { 8.0f * sc, 5.2f * sc, 3.2f * sc };
     ImU32  colors[3] = { ImGui::GetColorU32(glow1), ImGui::GetColorU32(glow2), ImGui::GetColorU32(core) };
@@ -199,23 +204,12 @@ void watqermark() {
     }
     draw->AddCircleFilled(ImVec2(ctr.x + r * 0.85f, ctr.y - r * 0.95f), 2.2f * sc, IM_COL32(255, 255, 255, alphaBody));
 
-    // Render Tombol Restart secara Visual (Jika sedang Pause)
-    if (g_HideGInGame && isPaused) {
-        ImVec2 r_min = ImVec2(bg_max.x + 10.0f * sc, bg_min.y);
-        ImVec2 r_max = ImVec2(r_min.x + size, r_min.y + size);
-        ImVec2 r_ctr = ImVec2(r_min.x + size * 0.5f, r_min.y + size * 0.5f);
-
-        draw->AddRectFilled(r_min, r_max, IM_COL32(6, 6, 9, alphaBody), round);
+    // tombol restart (muncul saat game di-pause)
+    if (showRestart) {
+        draw->AddRectFilled(r_min, r_max, bodyCol, round);
         draw->AddRect(r_min, r_max, ImGui::GetColorU32(ring), round, 0, 2.0f * sc);
-        
-        // Ikon panah melingkar untuk restart (Sederhana)
-        draw->PathArcTo(r_ctr, r, IM_PI * 0.25f, IM_PI * 1.75f, 30);
-        draw->PathStroke(ImGui::GetColorU32(core), 0, 3.2f * sc);
-        draw->AddTriangleFilled(
-            ImVec2(r_ctr.x + r, r_ctr.y),
-            ImVec2(r_ctr.x + r - 4.0f*sc, r_ctr.y - 6.0f*sc),
-            ImVec2(r_ctr.x + r + 4.0f*sc, r_ctr.y - 6.0f*sc),
-            ImGui::GetColorU32(core));
+        ImVec2 rc = ImVec2((r_min.x + r_max.x) * 0.5f, (r_min.y + r_max.y) * 0.5f);
+        DrawRestartIcon(draw, rc, size * 0.22f, ImGui::GetColorU32(core), sc);
     }
 }
 
@@ -365,9 +359,11 @@ void DrawMenu() {
     ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
     
     // Ganti background warna jadi tembus pandang berdasarkan g_MenuAlpha
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06f, 0.06f, 0.06f, g_MenuAlpha));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.08f, 0.08f, g_MenuAlpha * 0.8f));
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.08f, 0.08f, 0.08f, g_MenuAlpha));
+    ImVec4 menuBg(g_MenuBgColor[0], g_MenuBgColor[1], g_MenuBgColor[2], 1.0f);
+    ImVec4 menuBgLift(ImMin(menuBg.x + 0.02f, 1.0f), ImMin(menuBg.y + 0.02f, 1.0f), ImMin(menuBg.z + 0.02f, 1.0f), 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(menuBg.x, menuBg.y, menuBg.z, g_MenuAlpha));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(menuBgLift.x, menuBgLift.y, menuBgLift.z, g_MenuAlpha * 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(menuBgLift.x, menuBgLift.y, menuBgLift.z, g_MenuAlpha));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, g_MenuAlpha * 0.5f));
 
     ImGui::Begin("chuvashi_main", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize);
@@ -382,7 +378,7 @@ void DrawMenu() {
     
     // Top Bar 
     draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale), 
-                        IM_COL32(15, 15, 15, (int)(255 * g_MenuAlpha)), g_CornerRounding, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
+                        ImGui::ColorConvertFloat4ToU32(ImVec4(menuBg.x * 0.7f, menuBg.y * 0.7f, menuBg.z * 0.7f, g_MenuAlpha)), g_CornerRounding, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
 
     // FPS / frame time indicator
     if (g_ShowFPS) {
@@ -491,6 +487,35 @@ void DrawMenu() {
 
         edited::checkbox("Item Aim", &aim::itemAimEnabled);
         edited::slider_float("Item Aim Speed", &aim::itemSmoothness, 5.0f, 50.0f, "%.0f");
+        edited::slider_float("Aim Distance", &aim::itemAimDistance, 1.0f, 20.0f, "%.1f m");
+
+        ImGui::Spacing();
+        edited::colortext(ImVec4(1, 1, 1, 1), "Item Filter");
+        {
+            float sc = menuscale::menuscale;
+            float halfW = (ImGui::GetContentRegionAvail().x - 8.0f * sc) * 0.5f;
+            if (edited::buttonn("Select All", ImVec2(halfW, 34 * sc))) aim::SetAllItemTypes(true);
+            ImGui::SameLine(0, 8.0f * sc);
+            if (edited::buttonn("Unselect All", ImVec2(halfW, 34 * sc))) aim::SetAllItemTypes(false);
+        }
+        static char s_ItemSearch[48] = "";
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##itemSearch", "Search item...", s_ItemSearch, sizeof(s_ItemSearch));
+        ImGui::BeginChild("##itemTypeList", ImVec2(-1, 190.0f * menuscale::menuscale), true);
+        {
+            std::string flt = s_ItemSearch;
+            std::transform(flt.begin(), flt.end(), flt.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+            for (const std::string& nm : aim::ItemTypeNames()) {
+                std::string label = aim::PrettyItemName(nm);
+                if (!flt.empty()) {
+                    std::string low = label;
+                    std::transform(low.begin(), low.end(), low.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+                    if (low.find(flt) == std::string::npos) continue;
+                }
+                edited::checkbox(label.c_str(), aim::ItemTypeEnabledPtr(nm));
+            }
+        }
+        ImGui::EndChild();
         if (edited::buttonn("Rescan Map Items", ImVec2(-1, 40 * menuscale::menuscale))) aim::ScanLiveItems();
         ImGui::EndChild();
 
@@ -673,16 +698,20 @@ void DrawMenu() {
         edited::slider_float("Background Dim", &g_BackgroundDim, 0.0f, 1.0f, "%.2f");
         
         // -- FITUR BARU SESUAI PERMINTAAN --
-        edited::slider_float("Menu Alpha / Transparansi", &g_MenuAlpha, 0.1f, 1.0f, "%.2f");
+        edited::slider_float("Menu Opacity", &g_MenuAlpha, 0.1f, 1.0f, "%.2f");
+        ImGui::ColorEdit3("Menu Color", g_MenuBgColor, ImGuiColorEditFlags_NoInputs);
         edited::slider_float("Menu Scale", &menuscale::menuscalee, 0.5f, 1.5f, "%.2f");
-        edited::slider_float("Menu Rounding (Sudut)", &g_CornerRounding, 0.0f, 24.0f, "%.0f px");
+        edited::slider_float("Menu Rounding", &g_CornerRounding, 0.0f, 24.0f, "%.0f px");
         
         ImGui::Separator();
         ImGui::Spacing();
         edited::colortext(ImVec4(1, 1, 1, 1), "Popup 'G' Settings");
         edited::slider_float("Popup 'G' Scale", &g_PopupScale, 0.5f, 2.0f, "%.2fx");
         edited::slider_float("Popup 'G' Alpha", &g_PopupAlpha, 0.1f, 1.0f, "%.2f");
-        edited::checkbox("Auto-Hide 'G' in Gameplay", &g_HideGInGame);
+        ImGui::ColorEdit3("Popup Color", g_PopupColor, ImGuiColorEditFlags_NoInputs);
+        ImGui::ColorEdit3("Popup Background", g_PopupBgColor, ImGuiColorEditFlags_NoInputs);
+        edited::checkbox("Hide Popup During Gameplay", &g_HideGInGame);
+        ImGui::TextWrapped("%s", "The popup comes back when the game is paused.");
         // ---------------------------------
 
         edited::slider_float("Sidebar Width", &g_HomeBarWidth, 120.0f, 240.0f, "%.0f px");
@@ -691,8 +720,6 @@ void DrawMenu() {
             c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], 1.0f);
             g_AccentColor[3] = 1.0f;
         }
-        const char* langs[] = { "Russian", "English" };
-        edited::combo("Language", &g_Language, langs, 2);
         
         if (edited::buttonn("Apply UI Settings", ImVec2(-1, 40 * menuscale::menuscale))) {
             menuscale::menuscale = menuscale::menuscalee;
@@ -711,6 +738,9 @@ void DrawMenu() {
             g_HideGInGame = true;
             g_HomeBarWidth = 180.0f;
             g_ScrollbarSize = 10.0f;
+            g_MenuBgColor[0] = 0.06f; g_MenuBgColor[1] = 0.06f; g_MenuBgColor[2] = 0.06f;
+            g_PopupColor[0] = 112.0f / 255.0f; g_PopupColor[1] = 110.0f / 255.0f; g_PopupColor[2] = 215.0f / 255.0f;
+            g_PopupBgColor[0] = 6.0f / 255.0f; g_PopupBgColor[1] = 6.0f / 255.0f; g_PopupBgColor[2] = 9.0f / 255.0f;
             g_AccentColor[0] = 112.0f / 255.0f;
             g_AccentColor[1] = 110.0f / 255.0f;
             g_AccentColor[2] = 215.0f / 255.0f;
