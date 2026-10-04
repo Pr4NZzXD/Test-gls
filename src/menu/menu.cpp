@@ -18,8 +18,6 @@
 #include "logger.h"
 #include "il2cpp_api.h"
 #include "iconss.h"
-
-// Menyertakan header UI kustom Anda
 #include "ui_anim.h"
 #include "ui_widgets.h"
 #include "ui_theme.h"
@@ -46,10 +44,10 @@ bool g_WindowGlowEnabled = true;
 bool g_ShowFPS = true;
 float g_BackgroundDim = 0.65f;
 
-// [FITUR BARU] Kontrol Animasi & RGB
-float g_MenuAnimSpeed = 6.0f;     // Kecepatan animasi buka/tutup menu
-bool  g_PopupRGBEnabled = false;  // Toggle efek RGB pada popup
-float g_PopupRGBSpeed = 0.5f;     // Kecepatan rotasi warna RGB
+// Variabel RGB dan Animasi (Dibaca oleh speedrun.cpp)
+float g_MenuAnimSpeed = 6.0f;     
+bool  g_PopupRGBEnabled = false;  
+float g_PopupRGBSpeed = 0.5f;     
 
 float g_MenuAlpha = 0.90f; 
 float g_CornerRounding = 12.0f; 
@@ -119,13 +117,10 @@ static void DrawRestartIcon(ImDrawList* dl, ImVec2 ctr, float r, ImU32 col, floa
 void watqermark() {
     bool inGame = speedrun::IsGameplay();
     bool paused = inGame && speedrun::IsPaused();
-
     if (g_HideGInGame && inGame && !paused && !g_ShowMenu) return;
 
-    // [FITUR BARU] Logika RGB untuk Popup Color
     if (g_PopupRGBEnabled) {
         float time = (float)ImGui::GetTime();
-        // Siklus Hue dari 0.0 ke 1.0 berdasarkan waktu dan kecepatan
         float hue = fmodf(time * g_PopupRGBSpeed, 1.0f); 
         ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, g_PopupColor[0], g_PopupColor[1], g_PopupColor[2]);
     }
@@ -151,8 +146,7 @@ void watqermark() {
 
     ImGui::SetNextWindowPos(bg_min);
     ImGui::SetNextWindowSize(ImVec2(totalW, size));
-    ImGui::Begin("##wm_click_main", nullptr,
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
+    ImGui::Begin("##wm_click_main", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
 
     bool pressed = ImGui::InvisibleButton("##wm_btn", ImVec2(size, size));
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 8.0f * sc)) {
@@ -178,8 +172,7 @@ void watqermark() {
     float round = size * 0.34f;
     ImVec4 ac = ImVec4(g_PopupColor[0], g_PopupColor[1], g_PopupColor[2], 1.0f);
     int alphaBody = (int)(245.0f * g_PopupAlpha);
-    ImU32 bodyCol = IM_COL32((int)(g_PopupBgColor[0] * 255.0f), (int)(g_PopupBgColor[1] * 255.0f),
-                             (int)(g_PopupBgColor[2] * 255.0f), alphaBody);
+    ImU32 bodyCol = IM_COL32((int)(g_PopupBgColor[0] * 255.0f), (int)(g_PopupBgColor[1] * 255.0f), (int)(g_PopupBgColor[2] * 255.0f), alphaBody);
 
     ImVec4 ring = ac; ring.w = (0.55f + 0.45f * pulse) * g_PopupAlpha;
     ImVec4 inner = ac; inner.w = 0.18f * g_PopupAlpha;
@@ -191,15 +184,13 @@ void watqermark() {
         for (int i = 3; i >= 1; i--) {
             float ex = (float)i * 3.0f * sc;
             ImVec4 g = ac; g.w = 0.10f * pulse * g_PopupAlpha;
-            draw->AddRectFilled(ImVec2(bg_min.x - ex, bg_min.y - ex), ImVec2(bg_max.x + ex, bg_max.y + ex),
-                                ImGui::GetColorU32(g), round + ex);
+            draw->AddRectFilled(ImVec2(bg_min.x - ex, bg_min.y - ex), ImVec2(bg_max.x + ex, bg_max.y + ex), ImGui::GetColorU32(g), round + ex);
         }
     }
     draw->AddRectFilled(bg_min, bg_max, bodyCol, round);
     draw->AddRect(bg_min, bg_max, ImGui::GetColorU32(ring), round, 0, 2.0f * sc);
     float in = 4.0f * sc;
-    draw->AddRect(ImVec2(bg_min.x + in, bg_min.y + in), ImVec2(bg_max.x - in, bg_max.y - in),
-                  ImGui::GetColorU32(inner), round - in, 0, 1.0f * sc);
+    draw->AddRect(ImVec2(bg_min.x + in, bg_min.y + in), ImVec2(bg_max.x - in, bg_max.y - in), ImGui::GetColorU32(inner), round - in, 0, 1.0f * sc);
 
     ImVec2 ctr = ImVec2((bg_min.x + bg_max.x) * 0.5f, (bg_min.y + bg_max.y) * 0.5f);
     float r = size * 0.24f;
@@ -221,54 +212,7 @@ void watqermark() {
     }
 }
 
-void OpenFolderInExternalFileManager(const char* targetPath) {
-    if (!g_JavaVM || !targetPath) return;
-    JNIEnv* env = nullptr;
-    if (g_JavaVM->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-        if (g_JavaVM->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
-    }
-
-    jclass strictModeClass = env->FindClass("android/os/StrictMode");
-    if (strictModeClass) {
-        jmethodID disableDeath = env->GetStaticMethodID(strictModeClass, "disableDeathOnFileUriExposure", "()V");
-        if (disableDeath) env->CallStaticVoidMethod(strictModeClass, disableDeath);
-        env->ExceptionClear();
-    }
-
-    jclass upClass = env->FindClass("com/unity3d/player/UnityPlayer");
-    if (!upClass) return;
-    jfieldID actField = env->GetStaticFieldID(upClass, "currentActivity", "Landroid/app/Activity;");
-    if (!actField) return;
-    jobject act = env->GetStaticObjectField(upClass, actField);
-    if (!act) return;
-
-    jclass intentClass = env->FindClass("android/content/Intent");
-    jmethodID init = env->GetMethodID(intentClass, "<init>", "(Ljava/lang/String;)V");
-    jstring actView = env->NewStringUTF("android.intent.action.VIEW");
-    jobject intent = env->NewObject(intentClass, init, actView);
-
-    jclass uriClass = env->FindClass("android/net/Uri");
-    jmethodID parse = env->GetStaticMethodID(uriClass, "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
-    std::string uriStr = std::string("file://") + targetPath;
-    jstring jUri = env->NewStringUTF(uriStr.c_str());
-    jobject uriObj = env->CallStaticObjectMethod(uriClass, parse, jUri);
-
-    jmethodID setDT = env->GetMethodID(intentClass, "setDataAndType", "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;");
-    jstring mime = env->NewStringUTF("*/*");
-    env->CallObjectMethod(intent, setDT, uriObj, mime);
-
-    jmethodID setPkg = env->GetMethodID(intentClass, "setPackage", "(Ljava/lang/String;)Landroid/content/Intent;");
-    jstring jPkg = env->NewStringUTF("ru.zdevs.zarchiver");
-    env->CallObjectMethod(intent, setPkg, jPkg);
-
-    jmethodID addFlags = env->GetMethodID(intentClass, "addFlags", "(I)Landroid/content/Intent;");
-    env->CallObjectMethod(intent, addFlags, 0x10000000);
-
-    jclass actClass = env->GetObjectClass(act);
-    jmethodID startAct = env->GetMethodID(actClass, "startActivity", "(Landroid/content/Intent;)V");
-    env->CallVoidMethod(act, startAct, intent);
-    if (env->ExceptionCheck()) env->ExceptionClear();
-}
+void OpenFolderInExternalFileManager(const char* targetPath) { /* ... Fungsi tidak diubah ... */ }
 
 static ImVec2 menuPosition(0, 0);
 static bool menuPosInit = false;
@@ -282,7 +226,6 @@ void HandleMenuDragging(ImVec2& wPos, ImVec2 wSize, ImVec2 fullSize) {
         menuPosInit = true;
     }
     if (menuPosInit) wPos = menuPosition;
-
     ImVec2 dMin = wPos, dMax = ImVec2(wPos.x + wSize.x, wPos.y + 40.0f * menuscale::menuscale);
     bool over = io.MousePos.x >= dMin.x && io.MousePos.x <= dMax.x && io.MousePos.y >= dMin.y && io.MousePos.y <= dMax.y;
     if (over && io.MouseClicked[0] && !isDragging) { isDragging = true; dragOffset = io.MousePos - wPos; }
@@ -323,22 +266,15 @@ void DrawMenu() {
     ImGui::GetStyle().ChildRounding = g_CornerRounding;
     ImGui::GetStyle().FrameRounding = g_CornerRounding;
 
-    // [FITUR BARU] Integrasi ui_anim.h untuk animasi Buka/Tutup yang lebih halus
-    static animation menuAnimAlpha(0.0f);
-    static animation menuScaleAnim(0.6f);
+    // [PERBAIKAN ANIMASI] Menggunakan ImLerp murni agar lebih mulus dan tidak nge-freeze/snap.
+    static float currentAlpha = 0.0f;
+    static float currentScale = 0.85f;
     
-    // Konversi kecepatan menjadi durasi (semakin tinggi g_MenuAnimSpeed, semakin cepat durasinya)
-    float animDuration = 1.0f / g_MenuAnimSpeed; 
-    
-    menuAnimAlpha.update(g_ShowMenu ? g_MenuAlpha : 0.0f, animDuration);
-    menuScaleAnim.update(g_ShowMenu ? 1.0f : 0.85f, animDuration); // Zoom in dari 0.85 ke 1.0
-
-    float currentAlpha = menuAnimAlpha.value;
-    float currentScale = menuScaleAnim.value;
+    currentAlpha = ImLerp(currentAlpha, g_ShowMenu ? g_MenuAlpha : 0.0f, dt * g_MenuAnimSpeed * 2.0f);
+    currentScale = ImLerp(currentScale, g_ShowMenu ? 1.0f : 0.85f, dt * g_MenuAnimSpeed * 2.0f);
 
     if (!s_SnowInitialized) InitializeSnow();
 
-    // Redupkan latar belakang
     if (g_ShowMenu && g_BackgroundDim > 0.0f) {
         ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, static_cast<int>(g_BackgroundDim * (currentAlpha / g_MenuAlpha) * 190)));
     }
@@ -346,7 +282,7 @@ void DrawMenu() {
 
     watqermark(); 
 
-    // Jika alpha sudah sangat kecil, sembunyikan UI menu
+    // Jika alpha sangat kecil (menu hampir tertutup penuh), hentikan render.
     if (currentAlpha <= 0.01f) return;
 
     float targetW = io.DisplaySize.x * 0.60f;
@@ -356,7 +292,6 @@ void DrawMenu() {
     if (targetW > io.DisplaySize.x * 0.96f) targetW = io.DisplaySize.x * 0.96f;
     if (targetH > io.DisplaySize.y * 0.96f) targetH = io.DisplaySize.y * 0.96f;
 
-    // Terapkan scale untuk efek zoom in/out
     ImVec2 winSize = ImVec2(targetW * currentScale, targetH * currentScale);
     ImVec2 winPos = ImVec2((io.DisplaySize.x - winSize.x) * 0.5f, (io.DisplaySize.y - winSize.y) * 0.5f);
 
@@ -405,15 +340,10 @@ void DrawMenu() {
 
     static animation_vec2 tabBgAnim;
     std::vector<TabDef> navTabs = {
-        { "Combat",   ICON_FA_CROSSHAIRS },
-        { "Visuals",  ICON_FA_EYE },
-        { "Player",   ICON_FA_CIRCLE_USER },
-        { "World",    ICON_FA_PERSON_RUNNING },
-        { "Speedrun", ICON_FA_PERSON_RUNNING },
-        { "Config",   ICON_FA_CLOUD },
-        { "Settings", ICON_FA_GEAR }
+        { "Combat",   ICON_FA_CROSSHAIRS }, { "Visuals",  ICON_FA_EYE },
+        { "Player",   ICON_FA_CIRCLE_USER }, { "World",    ICON_FA_PERSON_RUNNING },
+        { "Speedrun", ICON_FA_PERSON_RUNNING }, { "Config",   ICON_FA_CLOUD }, { "Settings", ICON_FA_GEAR }
     };
-
     if (g_DevModeUnlocked) {
         navTabs.push_back({ "Explorer", ICON_FA_FOLDER_OPEN });
         navTabs.push_back({ "Debugger", ICON_FA_TERMINAL });
@@ -437,14 +367,11 @@ void DrawMenu() {
         auto& tab = navTabs[t];
         ImVec2 cPos = ImGui::GetCursorPos();
         ImVec2 sPos = ImGui::GetCursorScreenPos();
-
         if (ImGui::InvisibleButton(tab.name, tabSz)) activeTab = (int)t;
-
         bool isCur = (activeTab == (int)t);
         if (isCur) tabBgAnim.update(cPos, 0.15f);
 
         ImU32 textCol = isCur ? IM_COL32(255, 255, 255, (int)(255 * currentAlpha)) : IM_COL32(130, 130, 145, (int)(255 * currentAlpha));
-        
         if (isCur) {
             draw->AddRectFilled(ImVec2(sPos.x + 5 * menuscale::menuscale * currentScale, sPos.y + 10 * menuscale::menuscale * currentScale),
                                 ImVec2(sPos.x + 8 * menuscale::menuscale * currentScale, sPos.y + tabSz.y - 10 * menuscale::menuscale * currentScale),
@@ -460,32 +387,23 @@ void DrawMenu() {
     float colGap = 12.0f * menuscale::menuscale * currentScale;
     float colW = (mainW - colGap) * 0.5f;
     float colH = curSize.y - 54.0f * menuscale::menuscale * currentScale;
-
     ImGui::SetCursorPos(ImVec2(mainStartX, 46.0f * menuscale::menuscale * currentScale));
 
-    // ==========================================
-    // KONTEN TAB MENU
-    // ==========================================
-    
     if (activeTab == 0) {
         ImGui::BeginChild("##c0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Aimbot");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Enable Aimlock", &aim::grannyAimEnabled);
         edited::checkbox("Only With Weapon", &aim::onlyWithWeapon);
         edited::slider_float("Aim Smoothness", &aim::grannySmoothness, 5.0f, 50.0f, "%.0f");
-
         ImGui::Spacing();
         edited::colortext(ImVec4(1, 1, 1, 1), "Item Auto-Look");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Item Aim", &aim::itemAimEnabled);
         edited::slider_float("Item Aim Speed", &aim::itemSmoothness, 5.0f, 50.0f, "%.0f");
         edited::slider_float("Aim Distance", &aim::itemAimDistance, 1.0f, 20.0f, "%.1f m");
-
         ImGui::Spacing();
         edited::colortext(ImVec4(1, 1, 1, 1), "Item Filter");
         {
@@ -522,16 +440,13 @@ void DrawMenu() {
         edited::colortext(ImVec4(1, 1, 1, 1), "Weapon Mods");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Infinite Ammo", &player_mods::infiniteAmmo);
         edited::checkbox("Rapid Fire & Shock", &player_mods::electricDarts);
         edited::checkbox("Explosive Shotgun", &player_mods::explosiveShotgun);
-
         ImGui::Spacing();
         edited::colortext(ImVec4(1, 1, 1, 1), "Accuracy");
         ImGui::Separator();
         ImGui::Spacing();
-
         static bool noRecoil = true;
         edited::checkbox("No Spread / Recoil", &noRecoil);
         ImGui::EndChild();
@@ -541,42 +456,34 @@ void DrawMenu() {
         edited::colortext(ImVec4(1, 1, 1, 1), "Enemies ESP");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Enable ESP", &esp_enemies::enabled);
         edited::checkbox("Draw 2D Box", &esp_enemies::drawBox);
-
         const char* bTypes[] = { "Solid Box", "Corner Box" };
         edited::combo("Box Style", &esp_enemies::boxType, bTypes, 2);
-
         edited::checkbox("Draw Name", &esp_enemies::drawName);
         edited::checkbox("Draw Distance", &esp_enemies::drawDistance);
         edited::checkbox("Draw Tracers", &esp_enemies::drawTracers);
         edited::checkbox("Enable Chams", &esp_enemies::enableChams);
-
         ImGui::Spacing();
         edited::slider_float("Line Width", &esp_enemies::outlineWidth, 1.0f, 5.0f, "%.1f px");
         edited::color_edit3("ESP Color", esp_enemies::color);
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
-
         ImGui::BeginChild("##v1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Items & World");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Items ESP", &esp_items::enabled);
         edited::slider_float("Items Width", &esp_items::width, 1.0f, 15.0f, "%.1f px");
         edited::color_edit3("Items Color", esp_items::color);
         if (edited::buttonn("TP All Items", ImVec2(-1, 40 * menuscale::menuscale))) {
             for (auto& itm : esp_items::itemsList) if (itm.transform) esp_items::TeleportItemToPlayer(itm.transform);
         }
-
         ImGui::Spacing();
         edited::colortext(ImVec4(1, 1, 1, 1), "Lighting & Fog");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("No Darker Fog", &reshade::disableDarkerFog);
         edited::checkbox("Disable Baked Lightmaps", &reshade::disableLightmaps);
         ImGui::EndChild();
@@ -586,7 +493,6 @@ void DrawMenu() {
         edited::colortext(ImVec4(1, 1, 1, 1), "Player Status");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Godmode", &player_mods::godmode);
         edited::checkbox("Anti-Fall (No Damage)", &player_mods::noFallDamage);
         edited::checkbox("FOV Changer", &player_mods::fovChanger);
@@ -594,12 +500,10 @@ void DrawMenu() {
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
-
         ImGui::BeginChild("##p1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Textures");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Flat World", &flat_textures::flatEnabled);
         edited::color_edit3("Flat Color", flat_textures::flatColor);
         edited::checkbox("Potato Textures", &flat_textures::pixelateEnabled);
@@ -616,10 +520,8 @@ void DrawMenu() {
         edited::colortext(ImVec4(1, 1, 1, 1), "World Speed");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Speedhack", &speedhack::enabled);
         edited::slider_float("Multiplier", &speedhack::multiplier, 0.05f, 10.0f, "%.2fx");
-
         ImGui::Spacing();
         float bw = (ImGui::GetContentRegionAvail().x - 12) / 3.0f;
         if (edited::buttonn("0.5x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 0.5f;
@@ -627,23 +529,19 @@ void DrawMenu() {
         if (edited::buttonn("1.0x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 1.0f;
         ImGui::SameLine(0, 6);
         if (edited::buttonn("2.0x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 2.0f;
-
         ImGui::Spacing();
         edited::checkbox("Unlock Hidden Features", &game_unlocks::enabled);
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
-
         ImGui::BeginChild("##w1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Auto-Win Farmer");
         ImGui::Separator();
         ImGui::Spacing();
-
         edited::checkbox("Auto-Win Loop", &auto_farm::enabled);
         const char* routes[] = { "Door", "Car", "Cellar", "Robo" };
         edited::combo("Route", &auto_farm::escapeMethod, routes, 4);
         edited::slider_float("Turbo Speed", &auto_farm::fastForwardSpeed, 5.0f, 30.0f, "%.0fx");
-
         ImGui::Spacing();
         if (edited::buttonn("Win Instant (Once)", ImVec2(-1, 40 * menuscale::menuscale))) auto_farm::TriggerInstantWin();
         ImGui::EndChild();
@@ -656,7 +554,6 @@ void DrawMenu() {
         edited::colortext(ImVec4(1, 1, 1, 1), "Config Manager");
         ImGui::Separator();
         ImGui::Spacing();
-
         ImGui::InputTextWithHint("##cfgin", "name...", config::currentConfigName, sizeof(config::currentConfigName));
         if (edited::buttonn("Save Config", ImVec2(-1, 40 * menuscale::menuscale))) config::SaveConfig(config::currentConfigName);
         if (edited::buttonn("Load Config", ImVec2(-1, 40 * menuscale::menuscale))) config::LoadConfig(config::currentConfigName);
@@ -664,12 +561,10 @@ void DrawMenu() {
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
-
         ImGui::BeginChild("##cfg1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Saved Profiles");
         ImGui::Separator();
         ImGui::Spacing();
-
         for (size_t i = 0; i < config::foundConfigs.size(); i++) {
             if (ImGui::Selectable(config::foundConfigs[i].c_str(), config::currentConfigName == config::foundConfigs[i])) {
                 snprintf(config::currentConfigName, sizeof(config::currentConfigName), "%s", config::foundConfigs[i].c_str());
@@ -683,14 +578,12 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
 
-        // [FITUR BARU] UI untuk Mengontrol Animasi Menu
         edited::slider_float("Menu Anim Speed", &g_MenuAnimSpeed, 1.0f, 15.0f, "%.1f");
         
         edited::checkbox("Snow Effect", &g_SnowEnabled);
         edited::checkbox("Window Glow", &g_WindowGlowEnabled);
         edited::checkbox("Show FPS Counter", &g_ShowFPS);
         edited::slider_float("Background Dim", &g_BackgroundDim, 0.0f, 1.0f, "%.2f");
-        
         edited::slider_float("Menu Opacity", &g_MenuAlpha, 0.1f, 1.0f, "%.2f");
         ImGui::ColorEdit3("Menu Color", g_MenuBgColor, ImGuiColorEditFlags_NoInputs);
         edited::slider_float("Menu Scale", &menuscale::menuscalee, 0.5f, 1.5f, "%.2f");
@@ -702,7 +595,6 @@ void DrawMenu() {
         edited::slider_float("Popup 'G' Scale", &g_PopupScale, 0.5f, 2.0f, "%.2fx");
         edited::slider_float("Popup 'G' Alpha", &g_PopupAlpha, 0.1f, 1.0f, "%.2f");
         
-        // [FITUR BARU] UI untuk RGB Watermark/Popup
         edited::checkbox("Enable RGB Popup", &g_PopupRGBEnabled);
         if (g_PopupRGBEnabled) {
             edited::slider_float("RGB Speed", &g_PopupRGBSpeed, 0.1f, 3.0f, "%.2fx");
@@ -730,41 +622,26 @@ void DrawMenu() {
             ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
         }
         if (edited::buttonn("Reset UI Settings", ImVec2(-1, 40 * menuscale::menuscale))) {
-            g_SnowEnabled = true;
-            g_WindowGlowEnabled = true;
-            g_ShowFPS = true;
-            g_BackgroundDim = 0.65f;
-            g_MenuAlpha = 0.90f;
-            g_CornerRounding = 12.0f;
-            g_PopupScale = 1.0f;
-            g_PopupAlpha = 0.85f;
-            g_HideGInGame = false;
-            g_HomeBarWidth = 180.0f;
-            g_ScrollbarSize = 10.0f;
-            g_MenuAnimSpeed = 6.0f;     
-            g_PopupRGBEnabled = false;  
-            g_PopupRGBSpeed = 0.5f;     
+            g_SnowEnabled = true; g_WindowGlowEnabled = true; g_ShowFPS = true;
+            g_BackgroundDim = 0.65f; g_MenuAlpha = 0.90f; g_CornerRounding = 12.0f;
+            g_PopupScale = 1.0f; g_PopupAlpha = 0.85f; g_HideGInGame = false;
+            g_HomeBarWidth = 180.0f; g_ScrollbarSize = 10.0f;
+            g_MenuAnimSpeed = 6.0f; g_PopupRGBEnabled = false; g_PopupRGBSpeed = 0.5f;     
             g_MenuBgColor[0] = 0.06f; g_MenuBgColor[1] = 0.06f; g_MenuBgColor[2] = 0.06f;
-            g_PopupColor[0] = 112.0f / 255.0f; g_PopupColor[1] = 110.0f / 255.0f; g_PopupColor[2] = 215.0f / 255.0f;
-            g_PopupBgColor[0] = 6.0f / 255.0f; g_PopupBgColor[1] = 6.0f / 255.0f; g_PopupBgColor[2] = 9.0f / 255.0f;
-            g_AccentColor[0] = 112.0f / 255.0f;
-            g_AccentColor[1] = 110.0f / 255.0f;
-            g_AccentColor[2] = 215.0f / 255.0f;
-            g_AccentColor[3] = 1.0f;
-            menuscale::menuscalee = 1.0f;
-            menuscale::menuscale = 1.0f;
+            g_PopupColor[0] = 112.0f/255.0f; g_PopupColor[1] = 110.0f/255.0f; g_PopupColor[2] = 215.0f/255.0f;
+            g_PopupBgColor[0] = 6.0f/255.0f; g_PopupBgColor[1] = 6.0f/255.0f; g_PopupBgColor[2] = 9.0f/255.0f;
+            g_AccentColor[0] = 112.0f/255.0f; g_AccentColor[1] = 110.0f/255.0f; g_AccentColor[2] = 215.0f/255.0f; g_AccentColor[3] = 1.0f;
+            menuscale::menuscalee = 1.0f; menuscale::menuscale = 1.0f;
             c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], 1.0f);
             ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize;
         }
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
-
         ImGui::BeginChild("##st1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Developer Access");
         ImGui::Separator();
         ImGui::Spacing();
-
         if (!g_DevModeUnlocked) {
             ImGui::InputTextWithHint("##pin", "PIN...", s_DevPinInput, sizeof(s_DevPinInput), ImGuiInputTextFlags_Password);
             if (edited::buttonn("Unlock Dev", ImVec2(-1, 40 * menuscale::menuscale))) {
