@@ -24,7 +24,6 @@ namespace aim {
     float itemSmoothness = 30.0f;
     bool showItemSettings = false;
     float itemAimDistance = 3.0f;
-    bool stopWhenHoldingItem = false;
     std::vector<LiveItemTarget> liveItems;
 
     struct CiLess {
@@ -35,7 +34,6 @@ namespace aim {
     };
     static std::map<std::string, bool, CiLess> s_ItemTypes;
     static float s_RescanTimer = 0.0f;
-    static size_t s_LastLiveCount = (size_t)-1;
     static bool s_DefaultNewItems = true;
 
     static const char* kKnownItems[] = {
@@ -49,7 +47,6 @@ namespace aim {
     static void EnsureKnownItems() {
         for (const char* n : kKnownItems) s_ItemTypes.emplace(n, true);
     }
-    static void EnsureItemType(const std::string& n) { s_ItemTypes.emplace(n, true); }
 
     static bool IsItemTypeEnabled(const std::string& n) {
         auto it = s_ItemTypes.find(n);
@@ -84,9 +81,6 @@ namespace aim {
     bool* ItemTypeEnabledPtr(const std::string& name) {
         return &s_ItemTypes.emplace(name, true).first->second;
     }
-    void SetItemTypeEnabled(const std::string& name, bool enabled) {
-        s_ItemTypes[name] = enabled;
-    }
     void SetAllItemTypes(bool enabled) {
         EnsureKnownItems();
         for (auto& kv : s_ItemTypes) kv.second = enabled;
@@ -106,12 +100,8 @@ namespace aim {
     static void* s_LockedItemTr = nullptr;
     static void* s_HandHoldTr = nullptr;
     static int s_HandBaseline = 1000;       
-    static int s_LastHandLog = -2;
     static void* s_PrevAutoTarget = nullptr; 
     static float s_ItemCooldown = 0.0f;      
-    static char s_ItemFilter[64] = "";
-    static std::string s_Status = "";
-    static float s_StatusTimer = 0.0f;
 
     static void* s_CachedGrannyHeadTr = nullptr;
     static void* s_CachedMobileFPS = nullptr;
@@ -124,23 +114,19 @@ namespace aim {
         s_LockedItemTr = nullptr;
         s_HandHoldTr = nullptr;
         s_HandBaseline = 1000;
-        s_LastHandLog = -2;
         s_PrevAutoTarget = nullptr;
         s_ItemCooldown = 0.0f;
         s_RescanTimer = 0.0f;
-        s_LastLiveCount = (size_t)-1;
         liveItems.clear();
     }
 
     void Init() {
         ClearCache();
         EnsureKnownItems();
-        Logger::Log("AIM", LOG_OK, "aim::Init() -> Aim module initialized.");
     }
 
     void* FindTransformByPath(const char* fullPath) {
         if (!fullPath || !oGameObjectFind || !il2cpp_string_new) return nullptr;
-
         std::string pathStr = fullPath;
         std::vector<std::string> parts;
         size_t start = 0, end = 0;
@@ -211,6 +197,7 @@ namespace aim {
         return false;
     }
 
+    // [PERBAIKAN UTAMA] Deteksi akurat apakah pemain sedang memegang item apa pun di tangan
     bool IsPlayerHoldingAnyItem() {
         if (!s_HandHoldTr || !IsNativeObjectAlive(s_HandHoldTr)) {
             s_HandHoldTr = FindTransformByPath("PlayerStuff/HandHoldObjects");
@@ -218,15 +205,15 @@ namespace aim {
         if (!s_HandHoldTr || !IsNativeObjectAlive(s_HandHoldTr)) return false;
 
         int childCount = SafeGetChildCount(s_HandHoldTr);
-        int active = 0;
         for (int i = 0; i < childCount; i++) {
             void* childTr = SafeGetChild(s_HandHoldTr, i);
             if (!childTr || !IsNativeObjectAlive(childTr)) continue;
             void* go = oComponentGetGameObject ? oComponentGetGameObject(childTr) : nullptr;
-            if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) active++;
+            if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) {
+                return true; // Ada item aktif di tangan pemain -> Aim harus mati
+            }
         }
-        if (active < s_HandBaseline) s_HandBaseline = active;
-        return active > s_HandBaseline;
+        return false;
     }
 
     void* GetGrannyHeadTransform() {
@@ -235,16 +222,6 @@ namespace aim {
         if (headTr && IsNativeObjectAlive(headTr)) {
             s_CachedGrannyHeadTr = headTr;
             return s_CachedGrannyHeadTr;
-        }
-        if (oGameObjectFind && il2cpp_string_new && oGameObjectGetTransform) {
-            void* str = il2cpp_string_new("GrannyHeadPos");
-            if (str) {
-                void* go = oGameObjectFind(str);
-                if (go && IsNativeObjectAlive(go)) {
-                    s_CachedGrannyHeadTr = oGameObjectGetTransform(go);
-                    return s_CachedGrannyHeadTr;
-                }
-            }
         }
         return nullptr;
     }
@@ -314,17 +291,6 @@ namespace aim {
         }
     }
 
-    void ExportItemsToTxt() {
-        std::string exportText = "# Kahanium Map Items List:\n";
-        int count = 0;
-        for (auto& itm : liveItems) {
-            if (itm.selected) { exportText += itm.name + "\n"; count++; }
-        }
-        CopyToAndroidClipboard(exportText.c_str());
-        s_Status = "✓ " + std::to_string(count) + " предм. скопировано!";
-        s_StatusTimer = 3.5f;
-    }
-
     void SafeLookAt(void* tr, void* targetTransform, Vector3 targetWorldPos) {
         if (!tr || !IsNativeObjectAlive(tr)) return;
         void* trClass = FindClass("UnityEngine", "Transform");
@@ -383,14 +349,12 @@ namespace aim {
         float dist = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
         if (dist < 0.05f) return;
         Vector3 D = { d.x / dist, d.y / dist, d.z / dist };
-
-        Vector3 N = D;
-        float horiz = sqrtf(N.x * N.x + N.z * N.z);
+        float horiz = sqrtf(D.x * D.x + D.z * D.z);
         if (horiz < 0.001f) return;
 
         float aimDist = std::max(dist, 1.0f);
-        Vector3 point = { camPos.x + N.x * aimDist, camPos.y + N.y * aimDist, camPos.z + N.z * aimDist };
-        float pitch = -atan2f(N.y, horiz) * 57.2957795f;
+        Vector3 point = { camPos.x + D.x * aimDist, camPos.y + D.y * aimDist, camPos.z + D.z * aimDist };
+        float pitch = -atan2f(D.y, horiz) * 57.2957795f;
         pitch = std::clamp(pitch, -82.0f, 82.0f);
 
         Vector3 flatTarget = { point.x, pPos.y, point.z };
@@ -426,20 +390,9 @@ namespace aim {
             }
         }
 
-        if ((itemAimEnabled || s_LockedItemTr) && stopWhenHoldingItem && IsPlayerHoldingAnyItem()) {
-            s_LockedItemTr = nullptr;
-            return;
-        }
-
-        if (s_LockedItemTr && IsNativeObjectAlive(s_LockedItemTr)) {
-            void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(s_LockedItemTr) : nullptr;
-            if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) {
-                s_LockedItemTr = nullptr; 
-                s_ItemCooldown = 1.0f;
-            } else {
-                AimAtTarget(s_LockedItemTr, playerTr, camTr, camPivotTr, mfps);
-                return;
-            }
+        // [PERBAIKAN UTAMA] Jika pemain sedang memegang item di tangan, matikan aim item secara mutlak!
+        if (itemAimEnabled && IsPlayerHoldingAnyItem()) {
+            return; 
         }
 
         if (itemAimEnabled) {
@@ -462,7 +415,8 @@ namespace aim {
 
             for (auto& itm : liveItems) {
                 if (!itm.transform || !IsNativeObjectAlive(itm.transform)) continue;
-                if (!IsItemTypeEnabled(itm.baseName)) continue;   
+                if (!itm.selected) continue; // Pastikan hanya membidik item yang dicentang di checkbox
+                
                 void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(itm.transform) : nullptr;
                 if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) continue;
 
@@ -494,9 +448,11 @@ namespace aim {
         }
 
         DrawFeatureCardWithGear("item_aimbot_card", LOC("Аимбот на предметы", "Item Aimbot"), LOC("Наводит камеру на предметы", "Aims camera towards items"), &itemAimEnabled, &showItemSettings);
-        if (BeginSubSettingsAnim("item_aimbot_card", showItemSettings || itemAimEnabled, 340.0f * g_UiScale)) {
+        if (BeginSubSettingsAnim("item_aimbot_card", showItemSettings || itemAimEnabled, 320.0f * g_UiScale)) {
             DrawSliderWithInput("##itemAimSmooth", &itemSmoothness, 5.0f, 50.0f, "%.0f");
+            DrawSliderWithInput("##itemAimDist", &itemAimDistance, 1.0f, 20.0f, "%.1f m");
             ImGui::Spacing();
+            
             float availWidth = ImGui::GetContentRegionAvail().x;
             float btnW = (availWidth - 16.0f * g_UiScale) / 3.0f;
 
@@ -508,10 +464,17 @@ namespace aim {
             if (ImGui::Button(LOC("Снять все", "Unselect"), ImVec2(btnW, 26 * g_UiScale))) {
                 for (auto& itm : liveItems) itm.selected = false;
                 s_DefaultNewItems = false; 
-                s_LockedItemTr = nullptr;
             }
             ImGui::SameLine(0, 8.0f * g_UiScale);
             if (ImGui::Button(LOC("Обновить", "Rescan"), ImVec2(btnW, 26 * g_UiScale))) { ScanLiveItems(); }
+
+            ImGui::Spacing();
+            ImGui::BeginChild("##itemTypeList", ImVec2(-1, 140.0f * g_UiScale), true);
+            for (auto& itm : liveItems) {
+                ImGui::Checkbox(itm.name.c_str(), &itm.selected);
+            }
+            ImGui::EndChild();
+
             EndSubSettingsAnim("item_aimbot_card");
         }
     }
