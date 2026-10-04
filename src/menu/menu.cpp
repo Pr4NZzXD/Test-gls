@@ -62,8 +62,6 @@ float g_PopupBgColor[3] = { 6.f / 255.f, 6.f / 255.f, 9.f / 255.f };
 static bool g_DevModeUnlocked = false;
 static char s_DevPinInput[32] = "";
 
-#define oxorany(x) x
-
 struct Snowflake {
     ImVec2 position;
     float speed, size, oscillation, oscillationSpeed;
@@ -394,11 +392,16 @@ void DrawMenu() {
     float colH = curSize.y - 54.0f * menuscale::menuscale * currentScale;
     ImGui::SetCursorPos(ImVec2(mainStartX, 46.0f * menuscale::menuscale * currentScale));
 
+    // ==========================================
+    // MENGEMBALIKAN SEMUA FITUR DI MASING-MASING TAB
+    // ==========================================
     if (activeTab == 0) {
         ImGui::BeginChild("##c0", ImVec2(colW, colH), false);
         aim::DrawMenu();
         ImGui::EndChild();
+
         ImGui::SameLine(0, colGap);
+
         ImGui::BeginChild("##c1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Weapon Mods");
         ImGui::Separator();
@@ -406,6 +409,12 @@ void DrawMenu() {
         edited::checkbox("Infinite Ammo", &player_mods::infiniteAmmo);
         edited::checkbox("Rapid Fire & Shock", &player_mods::electricDarts);
         edited::checkbox("Explosive Shotgun", &player_mods::explosiveShotgun);
+        ImGui::Spacing();
+        edited::colortext(ImVec4(1, 1, 1, 1), "Accuracy");
+        ImGui::Separator();
+        ImGui::Spacing();
+        static bool noRecoil = true;
+        edited::checkbox("No Spread / Recoil", &noRecoil);
         ImGui::EndChild();
     }
     else if (activeTab == 1) {
@@ -415,13 +424,34 @@ void DrawMenu() {
         ImGui::Spacing();
         edited::checkbox("Enable ESP", &esp_enemies::enabled);
         edited::checkbox("Draw 2D Box", &esp_enemies::drawBox);
+        const char* bTypes[] = { "Solid Box", "Corner Box" };
+        edited::combo("Box Style", &esp_enemies::boxType, bTypes, 2);
+        edited::checkbox("Draw Name", &esp_enemies::drawName);
+        edited::checkbox("Draw Distance", &esp_enemies::drawDistance);
+        edited::checkbox("Draw Tracers", &esp_enemies::drawTracers);
+        edited::checkbox("Enable Chams", &esp_enemies::enableChams);
+        ImGui::Spacing();
+        edited::slider_float("Line Width", &esp_enemies::outlineWidth, 1.0f, 5.0f, "%.1f px");
+        edited::color_edit3("ESP Color", esp_enemies::color);
         ImGui::EndChild();
+
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##v1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Items & World");
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Items ESP", &esp_items::enabled);
+        edited::slider_float("Items Width", &esp_items::width, 1.0f, 15.0f, "%.1f px");
+        edited::color_edit3("Items Color", esp_items::color);
+        if (edited::buttonn("TP All Items", ImVec2(-1, 40 * menuscale::menuscale))) {
+            for (auto& itm : esp_items::itemsList) if (itm.transform) esp_items::TeleportItemToPlayer(itm.transform);
+        }
+        ImGui::Spacing();
+        edited::colortext(ImVec4(1, 1, 1, 1), "Lighting & Fog");
+        ImGui::Separator();
+        ImGui::Spacing();
+        edited::checkbox("No Darker Fog", &reshade::disableDarkerFog);
+        edited::checkbox("Disable Baked Lightmaps", &reshade::disableLightmaps);
         ImGui::EndChild();
     }
     else if (activeTab == 2) {
@@ -430,13 +460,25 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Godmode", &player_mods::godmode);
+        edited::checkbox("Anti-Fall (No Damage)", &player_mods::noFallDamage);
+        edited::checkbox("FOV Changer", &player_mods::fovChanger);
+        if (player_mods::fovChanger) edited::slider_float("FOV", &player_mods::customFov, 60.0f, 130.0f, "%.0f");
         ImGui::EndChild();
+
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##p1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Textures");
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Flat World", &flat_textures::flatEnabled);
+        edited::color_edit3("Flat Color", flat_textures::flatColor);
+        edited::checkbox("Potato Textures", &flat_textures::pixelateEnabled);
+        if (flat_textures::pixelateEnabled) {
+            float pLvl = (float)flat_textures::pixelateLevel;
+            if (edited::slider_float("Potato Level", &pLvl, 1.0f, 4.0f, "Lvl %.0f")) {
+                flat_textures::pixelateLevel = (int)pLvl;
+            }
+        }
         ImGui::EndChild();
     }
     else if (activeTab == 3) {
@@ -445,13 +487,29 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Speedhack", &speedhack::enabled);
+        edited::slider_float("Multiplier", &speedhack::multiplier, 0.05f, 10.0f, "%.2fx");
+        ImGui::Spacing();
+        float bw = (ImGui::GetContentRegionAvail().x - 12) / 3.0f;
+        if (edited::buttonn("0.5x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 0.5f;
+        ImGui::SameLine(0, 6);
+        if (edited::buttonn("1.0x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 1.0f;
+        ImGui::SameLine(0, 6);
+        if (edited::buttonn("2.0x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 2.0f;
+        ImGui::Spacing();
+        edited::checkbox("Unlock Hidden Features", &game_unlocks::enabled);
         ImGui::EndChild();
+
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##w1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Auto-Win Farmer");
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Auto-Win Loop", &auto_farm::enabled);
+        const char* routes[] = { "Door", "Car", "Cellar", "Robo" };
+        edited::combo("Route", &auto_farm::escapeMethod, routes, 4);
+        edited::slider_float("Turbo Speed", &auto_farm::fastForwardSpeed, 5.0f, 30.0f, "%.0fx");
+        ImGui::Spacing();
+        if (edited::buttonn("Win Instant (Once)", ImVec2(-1, 40 * menuscale::menuscale))) auto_farm::TriggerInstantWin();
         ImGui::EndChild();
     }
     else if (activeTab == 4) {
@@ -463,10 +521,21 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
         ImGui::InputTextWithHint("##cfgin", "name...", config::currentConfigName, sizeof(config::currentConfigName));
+        if (edited::buttonn("Save Config", ImVec2(-1, 40 * menuscale::menuscale))) config::SaveConfig(config::currentConfigName);
+        if (edited::buttonn("Load Config", ImVec2(-1, 40 * menuscale::menuscale))) config::LoadConfig(config::currentConfigName);
+        if (edited::buttonn("Open in ZArchiver", ImVec2(-1, 40 * menuscale::menuscale))) OpenFolderInExternalFileManager("/sdcard/Kahanium/");
         ImGui::EndChild();
+
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##cfg1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Saved Profiles");
+        ImGui::Separator();
+        ImGui::Spacing();
+        for (size_t i = 0; i < config::foundConfigs.size(); i++) {
+            if (ImGui::Selectable(config::foundConfigs[i].c_str(), config::currentConfigName == config::foundConfigs[i])) {
+                snprintf(config::currentConfigName, sizeof(config::currentConfigName), "%s", config::foundConfigs[i].c_str());
+            }
+        }
         ImGui::EndChild();
     }
     else if (activeTab == 6) {
