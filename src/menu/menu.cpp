@@ -19,11 +19,17 @@
 #include "il2cpp_api.h"
 #include "iconss.h"
 
+// Menyertakan header UI kustom Anda
+#include "ui_anim.h"
+#include "ui_widgets.h"
+#include "ui_theme.h"
+
 #include <vector>
 #include <string>
 #include <ctime>
 #include <cstdlib>
 #include <cstdio>
+#include <cmath>
 
 bool g_ShowMenu = false;
 bool g_InitImGui = false;
@@ -39,6 +45,11 @@ bool g_SnowEnabled = true;
 bool g_WindowGlowEnabled = true;
 bool g_ShowFPS = true;
 float g_BackgroundDim = 0.65f;
+
+// [FITUR BARU] Kontrol Animasi & RGB
+float g_MenuAnimSpeed = 6.0f;     // Kecepatan animasi buka/tutup menu
+bool  g_PopupRGBEnabled = false;  // Toggle efek RGB pada popup
+float g_PopupRGBSpeed = 0.5f;     // Kecepatan rotasi warna RGB
 
 float g_MenuAlpha = 0.90f; 
 float g_CornerRounding = 12.0f; 
@@ -110,6 +121,14 @@ void watqermark() {
     bool paused = inGame && speedrun::IsPaused();
 
     if (g_HideGInGame && inGame && !paused && !g_ShowMenu) return;
+
+    // [FITUR BARU] Logika RGB untuk Popup Color
+    if (g_PopupRGBEnabled) {
+        float time = (float)ImGui::GetTime();
+        // Siklus Hue dari 0.0 ke 1.0 berdasarkan waktu dan kecepatan
+        float hue = fmodf(time * g_PopupRGBSpeed, 1.0f); 
+        ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, g_PopupColor[0], g_PopupColor[1], g_PopupColor[2]);
+    }
 
     float sc = menuscale::menuscale * g_PopupScale;
     float size = 54.0f * sc;
@@ -304,21 +323,31 @@ void DrawMenu() {
     ImGui::GetStyle().ChildRounding = g_CornerRounding;
     ImGui::GetStyle().FrameRounding = g_CornerRounding;
 
-    static float menuAnimAlpha = 0.0f;
-    static float menuScaleAnim = 0.0f;
-    menuAnimAlpha = ImLerp(menuAnimAlpha, g_ShowMenu ? g_MenuAlpha : 0.0f, dt * 10.0f); 
-    menuScaleAnim = ImLerp(menuScaleAnim, g_ShowMenu ? 1.0f : 0.6f, dt * 8.0f);
+    // [FITUR BARU] Integrasi ui_anim.h untuk animasi Buka/Tutup yang lebih halus
+    static animation menuAnimAlpha(0.0f);
+    static animation menuScaleAnim(0.6f);
+    
+    // Konversi kecepatan menjadi durasi (semakin tinggi g_MenuAnimSpeed, semakin cepat durasinya)
+    float animDuration = 1.0f / g_MenuAnimSpeed; 
+    
+    menuAnimAlpha.update(g_ShowMenu ? g_MenuAlpha : 0.0f, animDuration);
+    menuScaleAnim.update(g_ShowMenu ? 1.0f : 0.85f, animDuration); // Zoom in dari 0.85 ke 1.0
+
+    float currentAlpha = menuAnimAlpha.value;
+    float currentScale = menuScaleAnim.value;
 
     if (!s_SnowInitialized) InitializeSnow();
 
+    // Redupkan latar belakang
     if (g_ShowMenu && g_BackgroundDim > 0.0f) {
-        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, static_cast<int>(g_BackgroundDim * 190)));
+        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, static_cast<int>(g_BackgroundDim * (currentAlpha / g_MenuAlpha) * 190)));
     }
     if (g_ShowMenu && g_SnowEnabled) UpdateAndDrawSnow();
 
     watqermark(); 
 
-    if (menuAnimAlpha <= 0.01f) return;
+    // Jika alpha sudah sangat kecil, sembunyikan UI menu
+    if (currentAlpha <= 0.01f) return;
 
     float targetW = io.DisplaySize.x * 0.60f;
     float targetH = io.DisplaySize.y * 0.80f;
@@ -327,23 +356,24 @@ void DrawMenu() {
     if (targetW > io.DisplaySize.x * 0.96f) targetW = io.DisplaySize.x * 0.96f;
     if (targetH > io.DisplaySize.y * 0.96f) targetH = io.DisplaySize.y * 0.96f;
 
-    ImVec2 winSize = ImVec2(targetW * menuScaleAnim, targetH * menuScaleAnim);
+    // Terapkan scale untuk efek zoom in/out
+    ImVec2 winSize = ImVec2(targetW * currentScale, targetH * currentScale);
     ImVec2 winPos = ImVec2((io.DisplaySize.x - winSize.x) * 0.5f, (io.DisplaySize.y - winSize.y) * 0.5f);
 
     HandleMenuDragging(winPos, winSize, ImVec2(targetW, targetH));
 
     ImGui::SetNextWindowPos(winPos);
     ImGui::SetNextWindowSize(winSize);
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, menuAnimAlpha);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, currentAlpha);
 
     ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
     
     ImVec4 menuBg(g_MenuBgColor[0], g_MenuBgColor[1], g_MenuBgColor[2], 1.0f);
     ImVec4 menuBgLift(ImMin(menuBg.x + 0.02f, 1.0f), ImMin(menuBg.y + 0.02f, 1.0f), ImMin(menuBg.z + 0.02f, 1.0f), 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(menuBg.x, menuBg.y, menuBg.z, g_MenuAlpha));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(menuBgLift.x, menuBgLift.y, menuBgLift.z, g_MenuAlpha * 0.8f));
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(menuBgLift.x, menuBgLift.y, menuBgLift.z, g_MenuAlpha));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, g_MenuAlpha * 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(menuBg.x, menuBg.y, menuBg.z, currentAlpha));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(menuBgLift.x, menuBgLift.y, menuBgLift.z, currentAlpha * 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(menuBgLift.x, menuBgLift.y, menuBgLift.z, currentAlpha));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, currentAlpha * 0.5f));
 
     ImGui::Begin("chuvashi_main", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize);
 
@@ -351,26 +381,26 @@ void DrawMenu() {
     ImVec2 pos = ImGui::GetWindowPos();
     ImVec2 curSize = ImGui::GetWindowSize();
 
-    float sidebarW = g_HomeBarWidth * menuscale::menuscale;
-    draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(50, 50, 50, (int)(255 * g_MenuAlpha)));
+    float sidebarW = g_HomeBarWidth * menuscale::menuscale * currentScale;
+    draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(50, 50, 50, (int)(255 * currentAlpha)));
     
-    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale), 
-                        ImGui::ColorConvertFloat4ToU32(ImVec4(menuBg.x * 0.7f, menuBg.y * 0.7f, menuBg.z * 0.7f, g_MenuAlpha)), g_CornerRounding, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
+    draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale * currentScale), 
+                        ImGui::ColorConvertFloat4ToU32(ImVec4(menuBg.x * 0.7f, menuBg.y * 0.7f, menuBg.z * 0.7f, currentAlpha)), g_CornerRounding, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
 
     if (g_ShowFPS) {
         char fpsBuf[64];
         snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS  |  %.1f ms", g_RealFPS, g_FrameTimeMs);
         ImVec2 fpsSz = ImGui::CalcTextSize(fpsBuf);
         draw->AddText(ImVec2(pos.x + curSize.x - fpsSz.x - 12.0f * menuscale::menuscale,
-                             pos.y + (38.0f * menuscale::menuscale - fpsSz.y) * 0.5f),
+                             pos.y + (38.0f * menuscale::menuscale * currentScale - fpsSz.y) * 0.5f),
                       IM_COL32(150, 150, 160, 255), fpsBuf);
     }
 
     const char* kTitle = "Granny Legacy Mod menu";
     ImVec2 tSz = ImGui::CalcTextSize(kTitle);
-    draw->AddText(ImVec2(pos.x + (curSize.x - tSz.x) * 0.5f, pos.y + (38.0f * menuscale::menuscale - tSz.y) * 0.5f), ImGui::GetColorU32(c::accent), kTitle);
+    draw->AddText(ImVec2(pos.x + (curSize.x - tSz.x) * 0.5f, pos.y + (38.0f * menuscale::menuscale * currentScale - tSz.y) * 0.5f), ImGui::GetColorU32(c::accent), kTitle);
 
-    ImGui::SetCursorPos(ImVec2(10 * menuscale::menuscale, 48 * menuscale::menuscale));
+    ImGui::SetCursorPos(ImVec2(10 * menuscale::menuscale * currentScale, 48 * menuscale::menuscale * currentScale));
     ImGui::BeginGroup();
 
     static animation_vec2 tabBgAnim;
@@ -389,12 +419,12 @@ void DrawMenu() {
         navTabs.push_back({ "Debugger", ICON_FA_TERMINAL });
     }
 
-    ImVec2 tabSz(sidebarW - 20.0f * menuscale::menuscale, 38.0f * menuscale::menuscale);
+    ImVec2 tabSz(sidebarW - 20.0f * menuscale::menuscale * currentScale, 38.0f * menuscale::menuscale * currentScale);
 
     draw->AddRectFilled(
         ImVec2(pos.x + tabBgAnim.value.x, pos.y + tabBgAnim.value.y),
         ImVec2(pos.x + tabBgAnim.value.x + tabSz.x, pos.y + tabBgAnim.value.y + tabSz.y),
-        IM_COL32(30, 30, 30, (int)(255 * g_MenuAlpha)), g_CornerRounding
+        IM_COL32(30, 30, 30, (int)(255 * currentAlpha)), g_CornerRounding
     );
     draw->AddRect(
         ImVec2(pos.x + tabBgAnim.value.x, pos.y + tabBgAnim.value.y),
@@ -402,7 +432,7 @@ void DrawMenu() {
         ImGui::GetColorU32(c::tab::tab_outline), g_CornerRounding
     );
 
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 5.0f * menuscale::menuscale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 5.0f * menuscale::menuscale * currentScale));
     for (size_t t = 0; t < navTabs.size(); t++) {
         auto& tab = navTabs[t];
         ImVec2 cPos = ImGui::GetCursorPos();
@@ -411,30 +441,32 @@ void DrawMenu() {
         if (ImGui::InvisibleButton(tab.name, tabSz)) activeTab = (int)t;
 
         bool isCur = (activeTab == (int)t);
-        if (isCur) tabBgAnim.update(cPos);
+        if (isCur) tabBgAnim.update(cPos, 0.15f);
 
-        ImU32 textCol = isCur ? IM_COL32(255, 255, 255, 255) : IM_COL32(130, 130, 145, 255);
-        ImU32 iconCol = isCur ? ImGui::GetColorU32(c::accent) : IM_COL32(130, 130, 145, 255);
-
-        (void)iconCol;
+        ImU32 textCol = isCur ? IM_COL32(255, 255, 255, (int)(255 * currentAlpha)) : IM_COL32(130, 130, 145, (int)(255 * currentAlpha));
+        
         if (isCur) {
-            draw->AddRectFilled(ImVec2(sPos.x + 5 * menuscale::menuscale, sPos.y + 10 * menuscale::menuscale),
-                                ImVec2(sPos.x + 8 * menuscale::menuscale, sPos.y + tabSz.y - 10 * menuscale::menuscale),
+            draw->AddRectFilled(ImVec2(sPos.x + 5 * menuscale::menuscale * currentScale, sPos.y + 10 * menuscale::menuscale * currentScale),
+                                ImVec2(sPos.x + 8 * menuscale::menuscale * currentScale, sPos.y + tabSz.y - 10 * menuscale::menuscale * currentScale),
                                 ImGui::GetColorU32(c::accent), 2.0f);
         }
-        draw->AddText(ImVec2(sPos.x + 18 * menuscale::menuscale, sPos.y + (tabSz.y - ImGui::GetFontSize()) * 0.5f), textCol, tab.name);
+        draw->AddText(ImVec2(sPos.x + 18 * menuscale::menuscale * currentScale, sPos.y + (tabSz.y - ImGui::GetFontSize()) * 0.5f), textCol, tab.name);
     }
     ImGui::PopStyleVar();
     ImGui::EndGroup();
 
-    float mainStartX = sidebarW + 12.0f * menuscale::menuscale;
-    float mainW = curSize.x - mainStartX - 12.0f * menuscale::menuscale;
-    float colGap = 12.0f * menuscale::menuscale;
+    float mainStartX = sidebarW + 12.0f * menuscale::menuscale * currentScale;
+    float mainW = curSize.x - mainStartX - 12.0f * menuscale::menuscale * currentScale;
+    float colGap = 12.0f * menuscale::menuscale * currentScale;
     float colW = (mainW - colGap) * 0.5f;
-    float colH = curSize.y - 54.0f * menuscale::menuscale;
+    float colH = curSize.y - 54.0f * menuscale::menuscale * currentScale;
 
-    ImGui::SetCursorPos(ImVec2(mainStartX, 46.0f * menuscale::menuscale));
+    ImGui::SetCursorPos(ImVec2(mainStartX, 46.0f * menuscale::menuscale * currentScale));
 
+    // ==========================================
+    // KONTEN TAB MENU
+    // ==========================================
+    
     if (activeTab == 0) {
         ImGui::BeginChild("##c0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Aimbot");
@@ -651,6 +683,9 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
 
+        // [FITUR BARU] UI untuk Mengontrol Animasi Menu
+        edited::slider_float("Menu Anim Speed", &g_MenuAnimSpeed, 1.0f, 15.0f, "%.1f");
+        
         edited::checkbox("Snow Effect", &g_SnowEnabled);
         edited::checkbox("Window Glow", &g_WindowGlowEnabled);
         edited::checkbox("Show FPS Counter", &g_ShowFPS);
@@ -666,7 +701,15 @@ void DrawMenu() {
         edited::colortext(ImVec4(1, 1, 1, 1), "Popup 'G' Settings");
         edited::slider_float("Popup 'G' Scale", &g_PopupScale, 0.5f, 2.0f, "%.2fx");
         edited::slider_float("Popup 'G' Alpha", &g_PopupAlpha, 0.1f, 1.0f, "%.2f");
-        ImGui::ColorEdit3("Popup Color", g_PopupColor, ImGuiColorEditFlags_NoInputs);
+        
+        // [FITUR BARU] UI untuk RGB Watermark/Popup
+        edited::checkbox("Enable RGB Popup", &g_PopupRGBEnabled);
+        if (g_PopupRGBEnabled) {
+            edited::slider_float("RGB Speed", &g_PopupRGBSpeed, 0.1f, 3.0f, "%.2fx");
+        } else {
+            ImGui::ColorEdit3("Popup Color", g_PopupColor, ImGuiColorEditFlags_NoInputs);
+        }
+        
         ImGui::ColorEdit3("Popup Background", g_PopupBgColor, ImGuiColorEditFlags_NoInputs);
         edited::checkbox("Hide Popup During Gameplay", &g_HideGInGame);
         
@@ -698,6 +741,9 @@ void DrawMenu() {
             g_HideGInGame = false;
             g_HomeBarWidth = 180.0f;
             g_ScrollbarSize = 10.0f;
+            g_MenuAnimSpeed = 6.0f;     
+            g_PopupRGBEnabled = false;  
+            g_PopupRGBSpeed = 0.5f;     
             g_MenuBgColor[0] = 0.06f; g_MenuBgColor[1] = 0.06f; g_MenuBgColor[2] = 0.06f;
             g_PopupColor[0] = 112.0f / 255.0f; g_PopupColor[1] = 110.0f / 255.0f; g_PopupColor[2] = 215.0f / 255.0f;
             g_PopupBgColor[0] = 6.0f / 255.0f; g_PopupBgColor[1] = 6.0f / 255.0f; g_PopupBgColor[2] = 9.0f / 255.0f;
