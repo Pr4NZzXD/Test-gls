@@ -15,20 +15,18 @@
 #include <cstdio>
 
 namespace aim {
-    // Бабка
     bool grannyAimEnabled = false;
     bool onlyWithWeapon = false;
     float grannySmoothness = 30.0f;
     bool showGrannySettings = false;
 
-    // Предметы
     bool itemAimEnabled = false;
     float itemSmoothness = 30.0f;
     bool showItemSettings = false;
     float itemAimDistance = 3.0f;
+    bool stopWhenHoldingItem = false;
     std::vector<LiveItemTarget> liveItems;
 
-    // ---- filter jenis item (tidak dihapus saat ClearCache, disimpan di config) ----
     struct CiLess {
         bool operator()(const std::string& a, const std::string& b) const {
             return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end(),
@@ -151,7 +149,6 @@ namespace aim {
             start = end + 1;
         }
         parts.push_back(pathStr.substr(start));
-
         if (parts.empty()) return nullptr;
 
         void* rootStr = il2cpp_string_new(parts[0].c_str());
@@ -168,10 +165,7 @@ namespace aim {
                 void* childTr = SafeGetChild(curTr, c);
                 if (!childTr || !IsNativeObjectAlive(childTr)) continue;
                 std::string cName = GetUnityObjectName(childTr);
-                if (cName == parts[i]) {
-                    nextTr = childTr;
-                    break;
-                }
+                if (cName == parts[i]) { nextTr = childTr; break; }
             }
             if (!nextTr) return nullptr;
             curTr = nextTr;
@@ -207,14 +201,11 @@ namespace aim {
             "PlayerStuff/HandHoldObjects/PepperSprayHand",
             "PlayerStuff/HandHoldObjects/ShotgunHand"
         };
-
         for (const char* path : weaponPaths) {
             void* tr = FindTransformByPath(path);
             if (tr && IsNativeObjectAlive(tr)) {
                 void* go = oComponentGetGameObject ? oComponentGetGameObject(tr) : nullptr;
-                if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) {
-                    return true;
-                }
+                if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) return true;
             }
         }
         return false;
@@ -228,51 +219,33 @@ namespace aim {
 
         int childCount = SafeGetChildCount(s_HandHoldTr);
         int active = 0;
-        std::string names;
         for (int i = 0; i < childCount; i++) {
             void* childTr = SafeGetChild(s_HandHoldTr, i);
             if (!childTr || !IsNativeObjectAlive(childTr)) continue;
             void* go = oComponentGetGameObject ? oComponentGetGameObject(childTr) : nullptr;
-            if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) {
-                active++;
-                if (names.size() < 160) names += GetUnityObjectName(childTr) + " ";
-            }
+            if (go && IsNativeObjectAlive(go) && oGetGameObjectActive && oGetGameObjectActive(go)) active++;
         }
-
         if (active < s_HandBaseline) s_HandBaseline = active;
-
-        if (active != s_LastHandLog) {
-            s_LastHandLog = active;
-            Logger::Log("AIM", LOG_OK, "HandHold aktif=%d baseline=%d : %s", active, s_HandBaseline, names.c_str());
-        }
-
         return active > s_HandBaseline;
     }
 
     void* GetGrannyHeadTransform() {
-        if (s_CachedGrannyHeadTr && IsNativeObjectAlive(s_CachedGrannyHeadTr)) {
-            return s_CachedGrannyHeadTr;
-        }
-
+        if (s_CachedGrannyHeadTr && IsNativeObjectAlive(s_CachedGrannyHeadTr)) return s_CachedGrannyHeadTr;
         void* headTr = FindTransformByPath("Entities/Granny-Stuff/GrannyParent/GrannyHeadPos");
         if (headTr && IsNativeObjectAlive(headTr)) {
             s_CachedGrannyHeadTr = headTr;
-            Logger::Log("AIM", LOG_OK, "GrannyHeadPos resolved via path: 0x%lx", (uintptr_t)headTr);
             return s_CachedGrannyHeadTr;
         }
-
         if (oGameObjectFind && il2cpp_string_new && oGameObjectGetTransform) {
             void* str = il2cpp_string_new("GrannyHeadPos");
             if (str) {
                 void* go = oGameObjectFind(str);
                 if (go && IsNativeObjectAlive(go)) {
                     s_CachedGrannyHeadTr = oGameObjectGetTransform(go);
-                    Logger::Log("AIM", LOG_OK, "GrannyHeadPos resolved via short name: 0x%lx", (uintptr_t)s_CachedGrannyHeadTr);
                     return s_CachedGrannyHeadTr;
                 }
             }
         }
-
         return nullptr;
     }
 
@@ -286,11 +259,9 @@ namespace aim {
         return false;
     }
 
-        void ScanLiveItems() {
-        // [PERBAIKAN] Simpan daftar lama agar kita tidak kehilangan data 'selected'
+    void ScanLiveItems() {
         std::vector<LiveItemTarget> oldLive = liveItems;
         liveItems.clear();
-        
         if (!IsSceneReady()) return;
 
         std::unordered_set<void*> addedTransforms;
@@ -299,12 +270,10 @@ namespace aim {
             if (!tr || !IsNativeObjectAlive(tr)) return;
             if (addedTransforms.find(tr) != addedTransforms.end()) return;
             if (IsHeldByPlayer(tr)) return;            
-            
             std::string base = NormalizeItemName(rawName);
             if (base.empty()) return;
             addedTransforms.insert(tr);
-            
-            // [PERBAIKAN] Cek apakah item ini sudah ada di scan sebelumnya, pertahankan status centangnya
+
             bool isSelected = s_DefaultNewItems;
             for (auto& old : oldLive) {
                 if (old.transform == tr) {
@@ -312,12 +281,9 @@ namespace aim {
                     break;
                 }
             }
-            
-            // Jangan selalu paksa s_ItemTypes menjadi true
             if (s_ItemTypes.find(base) == s_ItemTypes.end()) {
                 s_ItemTypes.emplace(base, s_DefaultNewItems); 
             }
-            
             liveItems.push_back({ rawName, tr, isSelected, base });
         };
 
@@ -346,68 +312,23 @@ namespace aim {
                 }
             }
         }
-        
-        if (oGameObjectFind && il2cpp_string_new) {
-            static const char* kFindAliases[] = { "Passcode" };   
-            std::vector<const char*> findNames(std::begin(kKnownItems), std::end(kKnownItems));
-            for (const char* al : kFindAliases) findNames.push_back(al);
-            for (const char* baseName : findNames) {
-                std::string cloneName = std::string(baseName) + "(Clone)";
-                const char* toFind[2] = { baseName, cloneName.c_str() };
-                for (int f = 0; f < 2; f++) {
-                    void* str = il2cpp_string_new(toFind[f]);
-                    if (!str) continue;
-                    void* go = oGameObjectFind(str);
-                    if (go && IsNativeObjectAlive(go)) {
-                        bool isAct = oGetGameObjectActive ? oGetGameObjectActive(go) : true;
-                        if (isAct) {
-                            void* tr = oGameObjectGetTransform ? oGameObjectGetTransform(go) : nullptr;
-                            addLive(toFind[f], tr);
-                        }
-                    }
-                }
-            }
-        }
     }
-
 
     void ExportItemsToTxt() {
         std::string exportText = "# Kahanium Map Items List:\n";
         int count = 0;
-
         for (auto& itm : liveItems) {
-            if (itm.selected) {
-                exportText += itm.name + "\n";
-                count++;
-            }
+            if (itm.selected) { exportText += itm.name + "\n"; count++; }
         }
-
         CopyToAndroidClipboard(exportText.c_str());
-
-        std::string folder = "/sdcard/Kahanium";
-        std::string path = folder + "/aim_items.txt";
-        FILE* f = fopen(path.c_str(), "w");
-        if (!f) {
-            folder = "/sdcard/Android/data/com.OmegaMegaGigalIntel.GrannyLegacy/files";
-            path = folder + "/aim_items.txt";
-            f = fopen(path.c_str(), "w");
-        }
-
-        if (f) {
-            fprintf(f, "%s", exportText.c_str());
-            fclose(f);
-        }
-
-        s_Status = "✓ " + std::to_string(count) + " предм. скопировано в буфер!";
+        s_Status = "✓ " + std::to_string(count) + " предм. скопировано!";
         s_StatusTimer = 3.5f;
     }
 
     void SafeLookAt(void* tr, void* targetTransform, Vector3 targetWorldPos) {
         if (!tr || !IsNativeObjectAlive(tr)) return;
-
         void* trClass = FindClass("UnityEngine", "Transform");
         if (!trClass) return;
-
         if (targetTransform && IsNativeObjectAlive(targetTransform)) {
             void* lookAtTrMethod = il2cpp_class_get_method_from_name(trClass, "LookAt", 1);
             if (lookAtTrMethod) {
@@ -417,43 +338,32 @@ namespace aim {
                 if (!exc) return;
             }
         }
-
         void* lookAtVecMethod = il2cpp_class_get_method_from_name(trClass, "LookAt", 2);
         if (lookAtVecMethod) {
             Vector3 up{ 0, 1, 0 };
             void* args[2] = { &targetWorldPos, &up };
             void* exc = nullptr;
             il2cpp_runtime_invoke(lookAtVecMethod, tr, args, &exc);
-            if (!exc) return;
         }
     }
 
     void AimAtTarget(void* targetTr, void* playerTr, void* camTr, void* camPivotTr, void* mfps) {
         if (!targetTr || !IsNativeObjectAlive(targetTr)) return;
-
-        Vector3 camPos{ 0, 0, 0 };
-        Vector3 targetPos{ 0, 0, 0 };
-        Vector3 playerPos{ 0, 0, 0 };
-
+        Vector3 camPos{ 0, 0, 0 }, targetPos{ 0, 0, 0 }, playerPos{ 0, 0, 0 };
         if (oTransformGetPosition) {
             oTransformGetPosition(camTr, &camPos);
             oTransformGetPosition(targetTr, &targetPos);
             oTransformGetPosition(playerTr, &playerPos);
         }
-
         Vector3 delta = { targetPos.x - camPos.x, targetPos.y - camPos.y, targetPos.z - camPos.z };
         float distXZ = sqrtf(delta.x * delta.x + delta.z * delta.z);
         if (distXZ < 0.05f) return;
-
         float targetPitch = -atan2f(delta.y, distXZ) * 57.2957795f;
         targetPitch = std::clamp(targetPitch, -82.0f, 82.0f);
 
         Vector3 flatTarget = { targetPos.x, playerPos.y, targetPos.z };
         SafeLookAt(playerTr, nullptr, flatTarget);
-
-        if (camPivotTr && IsNativeObjectAlive(camPivotTr)) {
-            SafeLookAt(camPivotTr, targetTr, targetPos);
-        }
+        if (camPivotTr && IsNativeObjectAlive(camPivotTr)) SafeLookAt(camPivotTr, targetTr, targetPos);
         SafeLookAt(camTr, targetTr, targetPos);
 
         if (mfps && s_MobileFPSClass && IsNativeObjectAlive(mfps)) {
@@ -464,7 +374,6 @@ namespace aim {
 
     void AimAtTargetSmooth(void* targetTr, void* playerTr, void* camTr, void* camPivotTr, void* mfps, float speed) {
         if (!targetTr || !IsNativeObjectAlive(targetTr) || !oTransformGetPosition) return;
-
         Vector3 camPos{ 0, 0, 0 }, tPos{ 0, 0, 0 }, pPos{ 0, 0, 0 };
         oTransformGetPosition(camTr, &camPos);
         oTransformGetPosition(targetTr, &tPos);
@@ -476,24 +385,6 @@ namespace aim {
         Vector3 D = { d.x / dist, d.y / dist, d.z / dist };
 
         Vector3 N = D;
-        if (oTransformGetForward) {
-            Vector3 F{ 0, 0, 0 };
-            oTransformGetForward(camTr, &F);
-            float fl = sqrtf(F.x * F.x + F.y * F.y + F.z * F.z);
-            if (fl > 0.001f) {
-                F = { F.x / fl, F.y / fl, F.z / fl };
-                float dot = F.x * D.x + F.y * D.y + F.z * D.z;
-                if (dot < 0.99999f) {
-                    float dt = ImGui::GetIO().DeltaTime;
-                    float k = 1.0f - expf(-speed * 0.35f * dt);
-                    k = std::clamp(k, 0.02f, 1.0f);
-                    Vector3 M = { F.x + (D.x - F.x) * k, F.y + (D.y - F.y) * k, F.z + (D.z - F.z) * k };
-                    float ml = sqrtf(M.x * M.x + M.y * M.y + M.z * M.z);
-                    if (ml > 0.001f) N = { M.x / ml, M.y / ml, M.z / ml };
-                }
-            }
-        }
-
         float horiz = sqrtf(N.x * N.x + N.z * N.z);
         if (horiz < 0.001f) return;
 
@@ -515,26 +406,17 @@ namespace aim {
 
     void Update() {
         if (!IsSceneReady()) return;
-
-        if (!itemAimEnabled) {
-            s_LockedItemTr = nullptr; 
-        }
+        if (!itemAimEnabled) s_LockedItemTr = nullptr;
 
         void* playerTr = player_mods::GetPlayerRootTransform();
         void* camTr = player_mods::GetPlayerCameraTransform();
         void* camPivotTr = player_mods::GetPlayerCamPivotTransform();
         void* mfps = GetActiveMobileFPS();
-
-        if (!playerTr || !IsNativeObjectAlive(playerTr) || !camTr || !IsNativeObjectAlive(camTr)) {
-            return;
-        }
+        if (!playerTr || !IsNativeObjectAlive(playerTr) || !camTr || !IsNativeObjectAlive(camTr)) return;
 
         if (grannyAimEnabled) {
             bool canAimGranny = true;
-            if (onlyWithWeapon && !IsPlayerHoldingWeapon()) {
-                canAimGranny = false;
-            }
-
+            if (onlyWithWeapon) canAimGranny = IsPlayerHoldingWeapon();
             if (canAimGranny) {
                 void* headTr = GetGrannyHeadTransform();
                 if (headTr && IsNativeObjectAlive(headTr)) {
@@ -544,7 +426,7 @@ namespace aim {
             }
         }
 
-        if ((itemAimEnabled || s_LockedItemTr) && IsPlayerHoldingAnyItem()) {
+        if ((itemAimEnabled || s_LockedItemTr) && stopWhenHoldingItem && IsPlayerHoldingAnyItem()) {
             s_LockedItemTr = nullptr;
             return;
         }
@@ -553,7 +435,7 @@ namespace aim {
             void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(s_LockedItemTr) : nullptr;
             if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) {
                 s_LockedItemTr = nullptr; 
-                s_ItemCooldown = 2.5f;    
+                s_ItemCooldown = 1.0f;
             } else {
                 AimAtTarget(s_LockedItemTr, playerTr, camTr, camPivotTr, mfps);
                 return;
@@ -561,24 +443,13 @@ namespace aim {
         }
 
         if (itemAimEnabled) {
-            if (s_PrevAutoTarget) {
-                bool gone = !IsNativeObjectAlive(s_PrevAutoTarget);
-                if (!gone) {
-                    void* prevGO = oComponentGetGameObject ? oComponentGetGameObject(s_PrevAutoTarget) : nullptr;
-                    if (prevGO && oGetGameObjectActive && !oGetGameObjectActive(prevGO)) gone = true;
-                }
-                if (gone) {
-                    s_PrevAutoTarget = nullptr;
-                    s_ItemCooldown = 2.5f;
-                }
-            }
             if (s_ItemCooldown > 0.0f) {
                 s_ItemCooldown -= ImGui::GetIO().DeltaTime;
                 return;
             }
 
             s_RescanTimer += ImGui::GetIO().DeltaTime;
-            if (liveItems.empty() || s_RescanTimer >= 1.0f) {
+            if (liveItems.empty() || s_RescanTimer >= 2.0f) {
                 s_RescanTimer = 0.0f;
                 ScanLiveItems();
             }
@@ -586,14 +457,12 @@ namespace aim {
             Vector3 pPos{ 0, 0, 0 };
             if (oTransformGetPosition) oTransformGetPosition(playerTr, &pPos);
             float maxDistSq = itemAimDistance * itemAimDistance;
-
             void* bestTarget = nullptr;
             float bestDistSq = maxDistSq;
 
             for (auto& itm : liveItems) {
                 if (!itm.transform || !IsNativeObjectAlive(itm.transform)) continue;
                 if (!IsItemTypeEnabled(itm.baseName)) continue;   
-
                 void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(itm.transform) : nullptr;
                 if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) continue;
 
@@ -617,126 +486,32 @@ namespace aim {
     }
 
     void DrawMenu() {
-        DrawFeatureCardWithGear("granny_head_aim",
-            LOC("Аимбот на Бабку (Granny Aimlock)", "Granny Aimlock (Head Track)"),
-            LOC("Непрерывно наводит прицел в голову Бабки каждый кадр", "Locks camera directly on Granny's head every frame"),
-            &grannyAimEnabled, &showGrannySettings);
-
+        DrawFeatureCardWithGear("granny_head_aim", LOC("Аимбот на Бабку", "Granny Aimlock"), LOC("Наводит прицел в голову Бабки", "Locks camera on Granny's head"), &grannyAimEnabled, &showGrannySettings);
         if (BeginSubSettingsAnim("granny_head_aim", showGrannySettings || grannyAimEnabled, 120.0f * g_UiScale)) {
-            ImGui::Checkbox(LOC("Наводиться только при оружии в руках", "Only when holding weapon"), &onlyWithWeapon);
-
-            ImGui::Text("%s:", LOC("Скорость / Плавность доводки", "Aim Speed & Smoothness"));
+            ImGui::Checkbox(LOC("Только с оружием", "Only when holding weapon"), &onlyWithWeapon);
             DrawSliderWithInput("##aimSmoothGranny", &grannySmoothness, 5.0f, 50.0f, "%.0f");
-
-            void* head = GetGrannyHeadTransform();
-            if (head && IsNativeObjectAlive(head)) {
-                Vector3 hPos{ 0, 0, 0 };
-                if (oTransformGetPosition) oTransformGetPosition(head, &hPos);
-                void* camTr = player_mods::GetPlayerCameraTransform();
-                Vector3 cPos{ 0, 0, 0 };
-                if (camTr && oTransformGetPosition) oTransformGetPosition(camTr, &cPos);
-                float dist = sqrtf((hPos.x - cPos.x)*(hPos.x - cPos.x) + (hPos.y - cPos.y)*(hPos.y - cPos.y) + (hPos.z - cPos.z)*(hPos.z - cPos.z));
-
-                ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "%s (%.1f м)", LOC("🎯 Голова Бабки захвачена", "🎯 Granny Head Locked"), dist);
-            }
-
             EndSubSettingsAnim("granny_head_aim");
         }
 
-        DrawFeatureCardWithGear("item_aimbot_card",
-            LOC("Аимбот на предметы (Auto-Look)", "Item Aimbot (Auto-Look)"),
-            LOC("Плавная наводка камеры на выбранные предметы карты", "Smoothly aims camera towards selected live items"),
-            &itemAimEnabled, &showItemSettings);
-
+        DrawFeatureCardWithGear("item_aimbot_card", LOC("Аимбот на предметы", "Item Aimbot"), LOC("Наводит камеру на предметы", "Aims camera towards items"), &itemAimEnabled, &showItemSettings);
         if (BeginSubSettingsAnim("item_aimbot_card", showItemSettings || itemAimEnabled, 340.0f * g_UiScale)) {
-            ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.4f, 1.0f), "%s", LOC("НАСТРОЙКА НАВОДКИ НА ПРЕДМЕТЫ:", "ITEM AIM ACTIONS:"));
             DrawSliderWithInput("##itemAimSmooth", &itemSmoothness, 5.0f, 50.0f, "%.0f");
-
             ImGui::Spacing();
             float availWidth = ImGui::GetContentRegionAvail().x;
             float btnW = (availWidth - 16.0f * g_UiScale) / 3.0f;
 
             if (ImGui::Button(LOC("Выбрать все", "Select All"), ImVec2(btnW, 26 * g_UiScale))) {
                 for (auto& itm : liveItems) itm.selected = true;
+                s_DefaultNewItems = true;
             }
             ImGui::SameLine(0, 8.0f * g_UiScale);
             if (ImGui::Button(LOC("Снять все", "Unselect"), ImVec2(btnW, 26 * g_UiScale))) {
                 for (auto& itm : liveItems) itm.selected = false;
+                s_DefaultNewItems = false; 
                 s_LockedItemTr = nullptr;
             }
             ImGui::SameLine(0, 8.0f * g_UiScale);
-            if (ImGui::Button(LOC("Обновить", "Rescan"), ImVec2(btnW, 26 * g_UiScale))) {
-                ScanLiveItems();
-            }
-
-            ImGui::Spacing();
-            if (ImGui::Button(LOC(" 📁 Экспорт списка в буфер и .txt ", " 📁 Export Selected List to .txt & Clipboard "), ImVec2(-1, 30.0f * g_UiScale))) {
-                ExportItemsToTxt();
-            }
-
-            if (s_StatusTimer > 0.0f) {
-                s_StatusTimer -= ImGui::GetIO().DeltaTime;
-                ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "%s", s_Status.c_str());
-            }
-
-            ImGui::Spacing();
-            ImGui::SetNextItemWidth(-1);
-            ImGui::InputTextWithHint("##filterItemsAim", LOC("Поиск предмета...", "Filter items..."), s_ItemFilter, sizeof(s_ItemFilter));
-            ImGui::Spacing();
-
-            ImGui::BeginChild("##aimLiveItemsList", ImVec2(0, 140.0f * g_UiScale), true);
-            float listAvailW = ImGui::GetContentRegionAvail().x;
-            float lookBtnW = 75.0f * g_UiScale;
-            float nameMaxW = listAvailW - lookBtnW - 40.0f * g_UiScale;
-
-            for (size_t idx = 0; idx < liveItems.size(); idx++) {
-                auto& itm = liveItems[idx];
-
-                if (s_ItemFilter[0] != '\0') {
-                    std::string lName = itm.name;
-                    std::string lFlt = s_ItemFilter;
-                    std::transform(lName.begin(), lName.end(), lName.begin(), ::tolower);
-                    std::transform(lFlt.begin(), lFlt.end(), lFlt.begin(), ::tolower);
-                    if (lName.find(lFlt) == std::string::npos) continue;
-                }
-
-                ImGui::PushID((int)idx);
-                ImGui::Checkbox("##aimTglItem", &itm.selected);
-                ImGui::SameLine(0, 6.0f * g_UiScale);
-
-                ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + nameMaxW);
-                ImGui::TextColored(itm.selected ? ImVec4(0.3f, 1.0f, 0.4f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", itm.name.c_str());
-                ImGui::PopTextWrapPos();
-
-                ImGui::SameLine(listAvailW - lookBtnW - 6.0f * g_UiScale);
-                bool isLocked = (s_LockedItemTr == itm.transform);
-                if (isLocked) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.55f, 0.25f, 1.0f));
-                }
-
-                if (ImGui::Button(isLocked ? LOC("🎯 Держит", "🎯 Lock") : LOC("👁 Навести", "👁 Look"), ImVec2(lookBtnW, 22 * g_UiScale))) {
-                    if (isLocked) {
-                        s_LockedItemTr = nullptr;
-                    } else {
-                        s_LockedItemTr = itm.transform;
-                    }
-                }
-
-                if (isLocked) {
-                    ImGui::PopStyleColor();
-                }
-
-                ImGui::PopID();
-            }
-
-            if (liveItems.empty()) {
-                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", LOC("Нажмите [Обновить] для поиска предметов в MapItems.", "Click [Rescan] to find items."));
-            }
-
-            ImGui::EndChild();
-
+            if (ImGui::Button(LOC("Обновить", "Rescan"), ImVec2(btnW, 26 * g_UiScale))) { ScanLiveItems(); }
             EndSubSettingsAnim("item_aimbot_card");
         }
     }

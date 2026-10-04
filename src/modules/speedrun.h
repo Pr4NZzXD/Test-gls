@@ -3,22 +3,19 @@
 #include <vector>
 
 namespace speedrun {
-    // Enum & Struktur untuk RNG Spawn
-    enum class EntityType {
-        GRANNY,
-        GRANDPA
-    };
+    enum class EntityType { GRANNY, GRANDPA };
 
     struct EntitySpawnPos {
         std::string name;
         int index;
     };
 
-    // Variabel state menu
     extern bool autoUnlockShop;
     extern bool restartButton;
     extern float restartPosX;
     extern float restartPosY;
+    extern float restartScale;
+    extern float restartAlpha;
     
     extern int ratChoice;
     extern int momRoute;
@@ -27,7 +24,6 @@ namespace speedrun {
     extern bool extraTraps;
     extern bool lavaMode;
 
-    // Variabel state RNG Entity
     extern int grannySpawnChoice;
     extern int grandpaSpawnChoice;
 

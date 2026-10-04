@@ -19,7 +19,6 @@
 
 namespace config { std::string GetActiveConfigPath(); }
 
-// Mengambil variabel global dari menu_3.cpp untuk sinkronisasi gaya RGB
 extern bool g_PopupRGBEnabled;
 extern float g_PopupRGBSpeed;
 extern float g_PopupColor[3];
@@ -32,6 +31,8 @@ namespace speedrun {
     bool restartButton = false;
     float restartPosX = -1.0f;
     float restartPosY = -1.0f;
+    float restartScale = 1.0f;
+    float restartAlpha = 0.85f;
 
     int  ratChoice = 0;
     int  momRoute = 0;
@@ -47,7 +48,6 @@ namespace speedrun {
     static bool s_Applied = false;
     static float s_InGameTimer = 0.0f;
     static std::string s_Status = "";
-    static std::string s_DumpStatus = "";
     static std::string s_SceneName = "";
     static float s_SceneTimer = 0.0f;
 
@@ -151,13 +151,6 @@ namespace speedrun {
         return true;
     }
 
-    static bool WriteBool(void* obj, const char* cls, const char* field, bool value) {
-        size_t off = FieldOff(cls, field);
-        if (!obj || !off) return false;
-        *(uint8_t*)((uintptr_t)obj + off) = value ? 1 : 0;
-        return true;
-    }
-
     static bool Alive(void* o) { return o && IsNativeObjectAlive(o); }
 
     static void ApplyEntitySpawnPositions(void* ec) {
@@ -184,68 +177,9 @@ namespace speedrun {
         }
     }
 
-    static void ApplyRat(void* om) {
-        if (ratChoice < 1 || ratChoice > 2) return;
-        void* r1 = ReadPtr(om, "ObjectsManager", "RemoteRatHang1");
-        void* r2 = ReadPtr(om, "ObjectsManager", "RemoteRatHang2");
-        if (!Alive(r1) || !Alive(r2)) return;
-        WriteBool(r1, "RemoteRat", "TheOne", ratChoice == 1);
-        WriteBool(r2, "RemoteRat", "TheOne", ratChoice == 2);
-    }
-
-    static void ApplyVase(void* om) {
-        void* arr = ReadPtr(om, "ObjectsManager", "VasePositionsGrandpa");
-        if (!arr) return;
-        int len = (int)*(uint64_t*)((uintptr_t)arr + 0x18);
-        if (len > 0) vaseCount = len;   
-        if (vaseChoice < 1) return;
-
-        void* vase = ReadPtr(om, "ObjectsManager", "GrandpaVase");
-        int idx = vaseChoice - 1;
-        if (!Alive(vase) || idx >= len) return;
-        void* posTr = ((void**)((uintptr_t)arr + 0x20))[idx];
-        if (!Alive(posTr) || !oGameObjectGetTransform || !oTransformGetPosition || !oTransformSetPosition) return;
-
-        void* vaseTr = oGameObjectGetTransform(vase);
-        if (!Alive(vaseTr)) return;
-        Vector3 p{ 0, 0, 0 };
-        oTransformGetPosition(posTr, &p);
-        oTransformSetPosition(vaseTr, &p);
-    }
-
-    static void ApplyMomSpider() {
-        if (momRoute < 1 || momRoute > 2) return;
-        void* comp = FirstInstance("AI_MomSpider");
-        if (!Alive(comp)) return;
-        void* run1 = ReadPtr(comp, "AI_MomSpider", "Run1");
-        void* run2 = ReadPtr(comp, "AI_MomSpider", "Run2");
-        if (!run1 || !run2) return;
-        if (momRoute == 1) WritePtr(comp, "AI_MomSpider", "Run2", run1);
-        else               WritePtr(comp, "AI_MomSpider", "Run1", run2);
-    }
-
-    static void ApplyEffects() {
-        if (!extraTraps && !lavaMode) return;
-        void* sem = FirstInstance("SpecialEffectsManager");
-        if (!sem) return;
-        if (extraTraps) {
-            void* go = ReadPtr(sem, "SpecialEffectsManager", "extraTraps");
-            if (Alive(go) && oSetGameObjectActive) oSetGameObjectActive(go, true);
-        }
-        if (lavaMode) {
-            WriteBool(sem, "SpecialEffectsManager", "lavaAtmosphereOn", true);
-            void* rise = ReadPtr(sem, "SpecialEffectsManager", "lavaRise");
-            if (Alive(rise) && oSetGameObjectActive) oSetGameObjectActive(rise, true);
-        }
-    }
-
     static void ApplyOverrides() {
-        void* om = FirstInstance("ObjectsManager");
-        if (om) { ApplyRat(om); ApplyVase(om); }
         void* ec = FirstInstance("EnemyController");
         if (ec) ApplyEntitySpawnPositions(ec);
-        ApplyMomSpider();
-        ApplyEffects();
     }
 
     typedef float (*GetTimeScale_t)();
@@ -286,13 +220,11 @@ namespace speedrun {
         auto_farm::LoadSceneByName("Scene");
     }
 
-    static void DoRestart() { RestartRun(false); }
-
     void DrawRestartButton() {
         if (!restartButton) return;
         if (s_SceneName != "Scene" || g_ShowMenu) return;               
 
-        float sc = menuscale::menuscale;
+        float sc = menuscale::menuscale * restartScale;
         float size = 46.0f * sc;
         ImVec2 disp = ImGui::GetIO().DisplaySize;
 
@@ -316,13 +248,10 @@ namespace speedrun {
             restartPosY += ImGui::GetIO().MouseDelta.y;
             s_Moved = true;
         }
-        if (pressed && !s_Moved) DoRestart();
+        if (pressed && !s_Moved) RestartRun(false);
         if (!ImGui::IsMouseDown(0)) s_Moved = false;
         ImGui::End();
 
-        // -------------------------------------------------------------
-        // [PERBAIKAN] Mengaplikasikan RGB dan efek Glow persis seperti Pop-up G
-        // -------------------------------------------------------------
         float rColor[3] = { g_PopupColor[0], g_PopupColor[1], g_PopupColor[2] };
         if (g_PopupRGBEnabled) {
             float time = (float)ImGui::GetTime();
@@ -336,16 +265,16 @@ namespace speedrun {
         float round = size * 0.34f;
         
         ImVec4 ac = ImVec4(rColor[0], rColor[1], rColor[2], 1.0f);
-        int alphaBody = (int)(245.0f * g_PopupAlpha);
+        int alphaBody = (int)(245.0f * restartAlpha);
         ImU32 bodyCol = IM_COL32((int)(g_PopupBgColor[0] * 255.0f), (int)(g_PopupBgColor[1] * 255.0f), (int)(g_PopupBgColor[2] * 255.0f), alphaBody);
 
-        ImVec4 ring = ac; ring.w = (held ? 1.0f : 0.65f) * g_PopupAlpha;
-        ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, g_PopupAlpha);
+        ImVec4 ring = ac; ring.w = (held ? 1.0f : 0.65f) * restartAlpha;
+        ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, restartAlpha);
 
         if (g_WindowGlowEnabled) {
             for (int i = 3; i >= 1; i--) {
                 float ex = (float)i * 2.5f * sc;
-                ImVec4 g = ac; g.w = 0.12f * pulse * g_PopupAlpha;
+                ImVec4 g = ac; g.w = 0.12f * pulse * restartAlpha;
                 dl->AddRectFilled(ImVec2(bmin.x - ex, bmin.y - ex), ImVec2(bmax.x + ex, bmax.y + ex), ImGui::GetColorU32(g), round + ex);
             }
         }
@@ -380,8 +309,7 @@ namespace speedrun {
         }
         if (autoUnlockShop && !s_AutoDone) {
             s_AutoDone = true;
-            int n = UnlockAllShop();
-            if (n > 0) s_Status = "Auto-unlock: " + std::to_string(n) + " item(s) unlocked";
+            UnlockAllShop();
         }
         if (s_SceneName == "Scene") {
             s_InGameTimer += dt;
@@ -395,11 +323,6 @@ namespace speedrun {
         }
     }
 
-    static const char* kVaseNames[9] = {
-        "Shed", "Crow Room", "Sewer Exit Room", "Spider Room", "Sewer Drain",
-        "Hidden Closet", "Old Dining Room Table", "Bookshelf Room", "Bedroom 1"
-    };
-
     void DrawMenu(float colW, float colH, float colGap) {
         float sc = menuscale::menuscale;
 
@@ -409,13 +332,7 @@ namespace speedrun {
         ImGui::Spacing();
 
         edited::checkbox("Auto-Unlock Shop Items", &autoUnlockShop);
-        if (edited::buttonn("Unlock All Shop Now", ImVec2(-1, 38 * sc))) {
-            int n = UnlockAllShop();
-            if (n < 0) s_Status = "Failed to unlock shop items";
-            else if (n == 0) s_Status = "All shop items are already unlocked";
-            else s_Status = std::to_string(n) + " shop item(s) unlocked";
-        }
-        if (!s_Status.empty()) ImGui::TextWrapped("%s", s_Status.c_str());
+        if (edited::buttonn("Unlock All Shop Now", ImVec2(-1, 38 * sc))) { UnlockAllShop(); }
 
         ImGui::Spacing();
         edited::checkbox("Restart Button", &restartButton);
@@ -423,13 +340,6 @@ namespace speedrun {
             restartPosX = -1.0f;
             restartPosY = -1.0f;
         }
-
-        ImGui::Spacing();
-        edited::colortext(ImVec4(1, 1, 1, 1), "Game Extras");
-        ImGui::Separator();
-        ImGui::Spacing();
-        edited::checkbox("Extra Traps", &extraTraps);
-        edited::checkbox("Lava Mode", &lavaMode);
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
@@ -449,32 +359,6 @@ namespace speedrun {
         for (const auto& p : gpPos) gpItems.push_back(p.name.c_str());
         edited::combo("Grandpa Location", &grandpaSpawnChoice, gpItems.data(), gpItems.size());
 
-        ImGui::Spacing();
-        static const char* ratItems[] = { "Random", "Left", "Right" };
-        static const char* momItems[] = { "Random", "Tunnel", "Elevator" };
-        edited::combo("Door-Opening Rat", &ratChoice, ratItems, 3);
-        edited::combo("Spider Mom Route", &momRoute, momItems, 3);
-
-        static std::vector<std::string> s_VaseLabels;
-        static std::vector<const char*> s_VasePtrs;
-        static int s_VaseBuiltFor = -1;
-        int n = (vaseCount > 0) ? vaseCount : 9;
-        if (s_VaseBuiltFor != n) {
-            s_VaseLabels.clear();
-            s_VaseLabels.push_back("Random");
-            for (int i = 0; i < n; i++) {
-                if (n == 9) s_VaseLabels.push_back(kVaseNames[i]);
-                else s_VaseLabels.push_back("Position " + std::to_string(i + 1));
-            }
-            s_VasePtrs.clear();
-            for (auto& s : s_VaseLabels) s_VasePtrs.push_back(s.c_str());
-            s_VaseBuiltFor = n;
-        }
-        if (vaseChoice > n) vaseChoice = 0;
-        edited::combo("Grandpa Vase Location", &vaseChoice, s_VasePtrs.data(), (int)s_VasePtrs.size());
-
-        ImGui::Spacing();
-        ImGui::TextWrapped("%s", "RNG choices apply 1.5 seconds after a run starts. Change them, then restart the run.");
         ImGui::EndChild();
     }
 }
