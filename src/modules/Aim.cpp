@@ -16,7 +16,7 @@
 
 namespace aim {
     // Бабка
-    bool grannyAimEnabled = true;
+    bool grannyAimEnabled = false;
     bool onlyWithWeapon = false;
     float grannySmoothness = 30.0f;
     bool showGrannySettings = false;
@@ -38,6 +38,7 @@ namespace aim {
     static std::map<std::string, bool, CiLess> s_ItemTypes;
     static float s_RescanTimer = 0.0f;
     static size_t s_LastLiveCount = (size_t)-1;
+    static bool s_DefaultNewItems = true;
 
     static const char* kKnownItems[] = {
         "Crossbow", "Shotgun", "Hammer", "PadlockKey", "PassCode", "Pliers", "SafeKey",
@@ -54,7 +55,10 @@ namespace aim {
 
     static bool IsItemTypeEnabled(const std::string& n) {
         auto it = s_ItemTypes.find(n);
-        if (it == s_ItemTypes.end()) { s_ItemTypes.emplace(n, true); return true; }
+        if (it == s_ItemTypes.end()) { 
+            s_ItemTypes.emplace(n, s_DefaultNewItems); 
+            return s_DefaultNewItems; 
+        }
         return it->second;
     }
 
@@ -88,6 +92,7 @@ namespace aim {
     void SetAllItemTypes(bool enabled) {
         EnsureKnownItems();
         for (auto& kv : s_ItemTypes) kv.second = enabled;
+        s_DefaultNewItems = enabled;
     }
     std::string PrettyItemName(const std::string& name) {
         std::string out;
@@ -102,10 +107,10 @@ namespace aim {
 
     static void* s_LockedItemTr = nullptr;
     static void* s_HandHoldTr = nullptr;
-    static int s_HandBaseline = 1000;       // jumlah objek tangan aktif paling sedikit yang pernah terlihat (tangan kosong)
+    static int s_HandBaseline = 1000;       
     static int s_LastHandLog = -2;
-    static void* s_PrevAutoTarget = nullptr; // target item terakhir yang di-aim otomatis
-    static float s_ItemCooldown = 0.0f;      // jeda aim item setelah item diambil
+    static void* s_PrevAutoTarget = nullptr; 
+    static float s_ItemCooldown = 0.0f;      
     static char s_ItemFilter[64] = "";
     static std::string s_Status = "";
     static float s_StatusTimer = 0.0f;
@@ -135,7 +140,6 @@ namespace aim {
         Logger::Log("AIM", LOG_OK, "aim::Init() -> Aim module initialized.");
     }
 
-    // ПОИСК ОБЪЕКТА ПО ПУТИ
     void* FindTransformByPath(const char* fullPath) {
         if (!fullPath || !oGameObjectFind || !il2cpp_string_new) return nullptr;
 
@@ -216,9 +220,6 @@ namespace aim {
         return false;
     }
 
-    // Cek apakah pemain sedang memegang sesuatu di tangan.
-    // Tidak bergantung pada nama objek: dihitung dari jumlah anak HandHoldObjects yang aktif,
-    // dibandingkan dengan jumlah aktif terkecil yang pernah terlihat (tangan kosong).
     bool IsPlayerHoldingAnyItem() {
         if (!s_HandHoldTr || !IsNativeObjectAlive(s_HandHoldTr)) {
             s_HandHoldTr = FindTransformByPath("PlayerStuff/HandHoldObjects");
@@ -240,7 +241,6 @@ namespace aim {
 
         if (active < s_HandBaseline) s_HandBaseline = active;
 
-        // Catat ke tab Debugger setiap kali jumlah objek aktif berubah (untuk pengecekan)
         if (active != s_LastHandLog) {
             s_LastHandLog = active;
             Logger::Log("AIM", LOG_OK, "HandHold aktif=%d baseline=%d : %s", active, s_HandBaseline, names.c_str());
@@ -276,9 +276,6 @@ namespace aim {
         return nullptr;
     }
 
-    // ==============================================================
-    // SCAN SEMUA ITEM YANG ADA DI SCENE (termasuk item yang di-drop pemain)
-    // ==============================================================
     static bool IsHeldByPlayer(void* tr) {
         void* p = SafeGetParentTransform(tr);
         for (int i = 0; i < 6 && p; i++) {
@@ -298,7 +295,7 @@ namespace aim {
         auto addLive = [&](const std::string& rawName, void* tr) {
             if (!tr || !IsNativeObjectAlive(tr)) return;
             if (addedTransforms.find(tr) != addedTransforms.end()) return;
-            if (IsHeldByPlayer(tr)) return;            // item yang sedang dipegang bukan target
+            if (IsHeldByPlayer(tr)) return;            
             std::string base = NormalizeItemName(rawName);
             if (base.empty()) return;
             addedTransforms.insert(tr);
@@ -306,7 +303,6 @@ namespace aim {
             liveItems.push_back({ rawName, tr, true, base });
         };
 
-        // 1. Container item di map
         if (oGameObjectFind && il2cpp_string_new) {
             const char* containerPaths[] = {
                 "Objects/MainItemSelection/MapItems",
@@ -338,9 +334,8 @@ namespace aim {
             }
         }
 
-        // 2. Klon dan item yang di-drop (dicari lewat nama)
         if (oGameObjectFind && il2cpp_string_new) {
-            static const char* kFindAliases[] = { "Passcode" };   // ejaan lain yang dipakai game
+            static const char* kFindAliases[] = { "Passcode" };   
             std::vector<const char*> findNames(std::begin(kKnownItems), std::end(kKnownItems));
             for (const char* al : kFindAliases) findNames.push_back(al);
 
@@ -364,7 +359,6 @@ namespace aim {
             }
         }
 
-        // Catat ke Debugger saat jumlah item berubah (membantu pengecekan item drop)
         if (liveItems.size() != s_LastLiveCount) {
             s_LastLiveCount = liveItems.size();
             std::string names;
@@ -404,16 +398,12 @@ namespace aim {
         s_StatusTimer = 3.5f;
     }
 
-    // ==============================================================
-    // ТОЧНЫЙ ВЫЗОВ TRANSFORM.LOOKAT (ИЗ ТВОЕГО РАБОЧЕГО КОДА)
-    // ==============================================================
     void SafeLookAt(void* tr, void* targetTransform, Vector3 targetWorldPos) {
         if (!tr || !IsNativeObjectAlive(tr)) return;
 
         void* trClass = FindClass("UnityEngine", "Transform");
         if (!trClass) return;
 
-        // 1. Пробуем Transform.LookAt(Transform target)
         if (targetTransform && IsNativeObjectAlive(targetTransform)) {
             void* lookAtTrMethod = il2cpp_class_get_method_from_name(trClass, "LookAt", 1);
             if (lookAtTrMethod) {
@@ -424,7 +414,6 @@ namespace aim {
             }
         }
 
-        // 2. Резерв: Transform.LookAt(Vector3 worldPosition, Vector3 worldUp)
         void* lookAtVecMethod = il2cpp_class_get_method_from_name(trClass, "LookAt", 2);
         if (lookAtVecMethod) {
             Vector3 up{ 0, 1, 0 };
@@ -435,7 +424,6 @@ namespace aim {
         }
     }
 
-    // НАВЕДЕНИЕ НА ЛЮБОЙ ТРАНСФОРМ ЧЕРЕЗ SAFELOOKAT
     void AimAtTarget(void* targetTr, void* playerTr, void* camTr, void* camPivotTr, void* mfps) {
         if (!targetTr || !IsNativeObjectAlive(targetTr)) return;
 
@@ -456,24 +444,20 @@ namespace aim {
         float targetPitch = -atan2f(delta.y, distXZ) * 57.2957795f;
         targetPitch = std::clamp(targetPitch, -82.0f, 82.0f);
 
-        // 1. Поворот тела игрока по горизонтали ровно на цель
         Vector3 flatTarget = { targetPos.x, playerPos.y, targetPos.z };
         SafeLookAt(playerTr, nullptr, flatTarget);
 
-        // 2. Поворот головы и камеры на объект цели
         if (camPivotTr && IsNativeObjectAlive(camPivotTr)) {
             SafeLookAt(camPivotTr, targetTr, targetPos);
         }
         SafeLookAt(camTr, targetTr, targetPos);
 
-        // 3. Синхронизируем MobileFPS
         if (mfps && s_MobileFPSClass && IsNativeObjectAlive(mfps)) {
             SetFieldFloat(mfps, s_MobileFPSClass, "rotationX", targetPitch);
             SetFieldFloat(mfps, s_MobileFPSClass, "lookDelta", 0.0f);
         }
     }
 
-    // Aim halus: arah kamera bergerak bertahap ke item, kecepatan diatur "Item Aim Speed"
     void AimAtTargetSmooth(void* targetTr, void* playerTr, void* camTr, void* camPivotTr, void* mfps, float speed) {
         if (!targetTr || !IsNativeObjectAlive(targetTr) || !oTransformGetPosition) return;
 
@@ -525,11 +509,12 @@ namespace aim {
         }
     }
 
-    // ==============================================================
-    // ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ (КАЖДЫЙ КАДР)
-    // ==============================================================
     void Update() {
         if (!IsSceneReady()) return;
+
+        if (!itemAimEnabled) {
+            s_LockedItemTr = nullptr; 
+        }
 
         void* playerTr = player_mods::GetPlayerRootTransform();
         void* camTr = player_mods::GetPlayerCameraTransform();
@@ -540,7 +525,6 @@ namespace aim {
             return;
         }
 
-        // 1. АИМБОТ НА ГОЛОВУ БАБКИ
         if (grannyAimEnabled) {
             bool canAimGranny = true;
             if (onlyWithWeapon && !IsPlayerHoldingWeapon()) {
@@ -556,8 +540,6 @@ namespace aim {
             }
         }
 
-        // 2. АИМБОТ НА ПРЕДМЕТЫ
-        // Jika item sudah dipegang pemain, lepas kunci dan biarkan kamera bebas
         if ((itemAimEnabled || s_LockedItemTr) && IsPlayerHoldingAnyItem()) {
             s_LockedItemTr = nullptr;
             return;
@@ -566,8 +548,8 @@ namespace aim {
         if (s_LockedItemTr && IsNativeObjectAlive(s_LockedItemTr)) {
             void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(s_LockedItemTr) : nullptr;
             if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) {
-                s_LockedItemTr = nullptr; // Сброс при подборе
-                s_ItemCooldown = 2.5f;    // item baru diambil: kamera bebas sejenak
+                s_LockedItemTr = nullptr; 
+                s_ItemCooldown = 2.5f;    
             } else {
                 AimAtTarget(s_LockedItemTr, playerTr, camTr, camPivotTr, mfps);
                 return;
@@ -575,7 +557,6 @@ namespace aim {
         }
 
         if (itemAimEnabled) {
-            // Kalau target sebelumnya hilang/nonaktif berarti item baru diambil -> beri jeda
             if (s_PrevAutoTarget) {
                 bool gone = !IsNativeObjectAlive(s_PrevAutoTarget);
                 if (!gone) {
@@ -592,7 +573,6 @@ namespace aim {
                 return;
             }
 
-            // Scan ulang tiap 1 detik agar item yang di-drop ikut terdeteksi
             s_RescanTimer += ImGui::GetIO().DeltaTime;
             if (liveItems.empty() || s_RescanTimer >= 1.0f) {
                 s_RescanTimer = 0.0f;
@@ -608,7 +588,7 @@ namespace aim {
 
             for (auto& itm : liveItems) {
                 if (!itm.transform || !IsNativeObjectAlive(itm.transform)) continue;
-                if (!IsItemTypeEnabled(itm.baseName)) continue;   // filter jenis item
+                if (!IsItemTypeEnabled(itm.baseName)) continue;   
 
                 void* itemGO = oComponentGetGameObject ? oComponentGetGameObject(itm.transform) : nullptr;
                 if (itemGO && oGetGameObjectActive && !oGetGameObjectActive(itemGO)) continue;
@@ -617,7 +597,7 @@ namespace aim {
                 if (oTransformGetPosition) oTransformGetPosition(itm.transform, &iPos);
 
                 float d = (iPos.x - pPos.x)*(iPos.x - pPos.x) + (iPos.y - pPos.y)*(iPos.y - pPos.y) + (iPos.z - pPos.z)*(iPos.z - pPos.z);
-                if (d <= bestDistSq) {      // hanya item dalam jarak yang diatur
+                if (d <= bestDistSq) {      
                     bestDistSq = d;
                     bestTarget = itm.transform;
                 }
@@ -633,7 +613,6 @@ namespace aim {
     }
 
     void DrawMenu() {
-        // КАРТОЧКА АИМА НА БАБКУ
         DrawFeatureCardWithGear("granny_head_aim",
             LOC("Аимбот на Бабку (Granny Aimlock)", "Granny Aimlock (Head Track)"),
             LOC("Непрерывно наводит прицел в голову Бабки каждый кадр", "Locks camera directly on Granny's head every frame"),
@@ -661,7 +640,6 @@ namespace aim {
             EndSubSettingsAnim("granny_head_aim");
         }
 
-        // КАРТОЧКА АИМА НА ПРЕДМЕТЫ
         DrawFeatureCardWithGear("item_aimbot_card",
             LOC("Аимбот на предметы (Auto-Look)", "Item Aimbot (Auto-Look)"),
             LOC("Плавная наводка камеры на выбранные предметы карты", "Smoothly aims camera towards selected live items"),

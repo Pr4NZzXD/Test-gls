@@ -6,6 +6,7 @@
 #include "logger.h"
 #include "imgui.h"
 #include "ui_widgets.h"
+#include "Aim.h" 
 
 #include <cstdio>
 #include <cstring>
@@ -50,9 +51,6 @@ namespace speedrun {
         Logger::Log("SPEEDRUN", LOG_OK, "speedrun::Init() -> Speedrun module initialized.");
     }
 
-    // ==============================================================
-    // 1. UNLOCK SEMUA ITEM SHOP (PlayerPrefs.SetInt(key, 1))
-    // ==============================================================
     static const char* kShopKeys[] = {
         "CC_BOUGHT", "CH_BOUGHT", "EXTRAS_BOUGHT", "EXTRAPS_BOUGHT", "FLASH_BOUGHT",
         "GRANDPA_BOUGHT", "HO_BOUGHT", "IM_BOUGHT", "NM_BOUGHT", "ROBO_BOUGHT",
@@ -98,9 +96,6 @@ namespace speedrun {
         return changed;
     }
 
-    // ==============================================================
-    // HELPER AKSES OBJEK/FIELD IL2CPP
-    // ==============================================================
     static void* TypeObjOf(const char* cls) {
         void* k = FindClass("", cls);
         if (!k || !il2cpp_class_get_type || !il2cpp_type_get_object) return nullptr;
@@ -144,9 +139,6 @@ namespace speedrun {
 
     static bool Alive(void* o) { return o && IsNativeObjectAlive(o); }
 
-    // ==============================================================
-    // 2. KONTROL RNG + EKSTRA (diterapkan sekali setelah run dimulai)
-    // ==============================================================
     static void ApplyRat(void* om) {
         if (ratChoice < 1 || ratChoice > 2) return;
         void* r1 = ReadPtr(om, "ObjectsManager", "RemoteRatHang1");
@@ -164,7 +156,7 @@ namespace speedrun {
         void* arr = ReadPtr(om, "ObjectsManager", "VasePositionsGrandpa");
         if (!arr) return;
         int len = (int)*(uint64_t*)((uintptr_t)arr + 0x18);
-        if (len > 0) vaseCount = len;   // simpan jumlah posisi untuk label dropdown
+        if (len > 0) vaseCount = len;   
         if (vaseChoice < 1) return;
 
         void* vase = ReadPtr(om, "ObjectsManager", "GrandpaVase");
@@ -187,7 +179,7 @@ namespace speedrun {
         void* comp = nullptr;
         void* esc = FirstInstance("Escapes");
         if (esc && g_GetComponentMethod) {
-            void* go = ReadPtr(esc, "Escapes", "MomSpider");   // GameObject (bisa nonaktif)
+            void* go = ReadPtr(esc, "Escapes", "MomSpider");   
             void* typeObj = TypeObjOf("AI_MomSpider");
             if (Alive(go) && typeObj) {
                 void* exc = nullptr;
@@ -206,7 +198,6 @@ namespace speedrun {
         void* run2 = ReadPtr(comp, "AI_MomSpider", "Run2");
         if (!run1 || !run2) return;
 
-        // Dua-duanya diarahkan ke titik yang sama, sehingga pilihan acak game tidak berpengaruh
         if (momRoute == 1) WritePtr(comp, "AI_MomSpider", "Run2", run1);
         else               WritePtr(comp, "AI_MomSpider", "Run1", run2);
         Logger::Log("SPEEDRUN", LOG_OK, "Spider Mom route -> %s", momRoute == 1 ? "Run1 (Tunnel)" : "Run2 (Elevator)");
@@ -248,9 +239,6 @@ namespace speedrun {
         ApplyEffects();
     }
 
-    // ==============================================================
-    // 3. TOMBOL RESTART MENGAMBANG (memanggil Paused.RestartP())
-    // ==============================================================
     typedef float (*GetTimeScale_t)();
 
     static float CurrentTimeScale() {
@@ -277,9 +265,9 @@ namespace speedrun {
     }
 
     void RestartRun(bool allowWhilePaused) {
-        // Tombol melayang tidak berbuat apa pun saat game di-pause (sama seperti versi desktop);
-        // tombol restart di popup justru dipakai saat pause, jadi diizinkan.
         if (!allowWhilePaused && IsPaused()) return;
+        
+        aim::ClearCache(); 
 
         void* pausedCls = FindClass("", "Paused");
         void* inst = FirstInstance("Paused");
@@ -292,7 +280,6 @@ namespace speedrun {
                 return;
             }
         }
-        // Cadangan: muat ulang scene
         if (oSetTimeScale) oSetTimeScale(1.0f);
         auto_farm::LoadSceneByName("Scene");
         Logger::Log("SPEEDRUN", LOG_WARN, "Restart: Paused.RestartP() failed, reloading scene.");
@@ -302,8 +289,8 @@ namespace speedrun {
 
     void DrawRestartButton() {
         if (!restartButton) return;
-        if (s_SceneName != "Scene") return;   // hanya tampil saat gameplay
-        if (g_ShowMenu) return;               // sembunyi saat menu terbuka
+        if (s_SceneName != "Scene") return;   
+        if (g_ShowMenu) return;               
 
         float sc = menuscale::menuscale;
         float size = 46.0f * sc;
@@ -334,7 +321,6 @@ namespace speedrun {
         if (!ImGui::IsMouseDown(0)) s_Moved = false;
         ImGui::End();
 
-        // gambar: squircle gelap + panah melingkar
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         ImVec4 ac = c::accent;
         float round = size * 0.34f;
@@ -359,13 +345,9 @@ namespace speedrun {
             col);
     }
 
-    // ==============================================================
-    // UPDATE (dipanggil tiap frame saat scene siap)
-    // ==============================================================
     void Update() {
         float dt = ImGui::GetIO().DeltaTime;
 
-        // nama scene di-cache agar tidak dipanggil tiap frame
         s_SceneTimer += dt;
         if (s_SceneName.empty() || s_SceneTimer > 0.5f) {
             s_SceneName = auto_farm::GetCurrentSceneName();
@@ -378,7 +360,6 @@ namespace speedrun {
             if (n > 0) s_Status = "Auto-unlock: " + std::to_string(n) + " item(s) unlocked";
         }
 
-        // Override RNG/ekstra: tunggu 2 detik setelah gameplay dimulai agar Start() game selesai
         if (s_SceneName == "Scene") {
             s_InGameTimer += dt;
             if (!s_Applied && s_InGameTimer >= 2.0f) {
@@ -390,9 +371,6 @@ namespace speedrun {
         }
     }
 
-    // ==============================================================
-    // 3. DUMP CLASS GAME (untuk menyusun fitur RNG / ekstra dengan akurat)
-    // ==============================================================
     typedef size_t      (*image_get_class_count_t)(void* image);
     typedef void*       (*image_get_class_t)(void* image, size_t index);
     typedef void*       (*class_get_methods_t)(void* klass, void** iter);
@@ -441,7 +419,6 @@ namespace speedrun {
         FILE* f = fopen(path.c_str(), "w");
         if (!f) { s_DumpStatus = "Failed to write: dump_classes.txt"; return false; }
 
-        // Kelas yang didump penuh (nama persis)
         static const char* kFullClasses[] = {
             "EnemyController", "Paused", "Days", "MainMenu", "ColorToyCapsule",
             "VersionControl", "HE_Spawn", "Menu_Seed", "Lava", "Elevator", "PlayerStatus"
@@ -494,7 +471,6 @@ namespace speedrun {
             if (!iname || strcmp(iname, "Assembly-CSharp.dll") != 0) continue;
 
             size_t cc = image_get_class_count(img);
-            // Bagian A: kelas target, dump lengkap
             for (size_t i = 0; i < cc; i++) {
                 void* k = image_get_class(img, i);
                 if (!k) continue;
@@ -513,9 +489,6 @@ namespace speedrun {
         return true;
     }
 
-    // ==============================================================
-    // MENU (tab Speedrun)
-    // ==============================================================
     static const char* kVaseNames[9] = {
         "Shed", "Crow Room", "Sewer Exit Room", "Spider Room", "Sewer Drain",
         "Hidden Closet", "Old Dining Room Table", "Bookshelf Room", "Bedroom 1"
@@ -566,7 +539,6 @@ namespace speedrun {
         edited::combo("Door-Opening Rat", &ratChoice, ratItems, 3);
         edited::combo("Spider Mom Route", &momRoute, momItems, 3);
 
-        // Dropdown posisi guci: "Random" + nama posisi (atau "Position N" jika jumlahnya bukan 9)
         static std::vector<std::string> s_VaseLabels;
         static std::vector<const char*> s_VasePtrs;
         static int s_VaseBuiltFor = -1;
