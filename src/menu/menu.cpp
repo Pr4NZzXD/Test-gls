@@ -34,29 +34,26 @@ float g_HomeBarWidth = 180.0f;
 float g_ScrollbarSize = 10.0f;
 float g_AccentColor[4] = { 112.f/255.f, 110.f/255.f, 215.f/255.f, 1.0f };
 
-int g_Language = 1; // Чистый английский
+int g_Language = 1; 
 bool g_SnowEnabled = true;
 bool g_WindowGlowEnabled = true;
 bool g_ShowFPS = true;
 float g_BackgroundDim = 0.65f;
 
-// --- TAMBAHAN VARIABEL UNTUK KUSTOMISASI UI ---
-float g_MenuAlpha = 0.90f; // Transparansi Background Menu Utama
-float g_CornerRounding = 12.0f; // Sudut melengkung untuk Menu Utama
-float g_PopupScale = 1.0f; // Skala khusus untuk tombol Pop-Up "G"
-float g_PopupAlpha = 0.85f; // Transparansi tombol Pop-Up "G"
-bool g_HideGInGame = true; // Popup "G" disembunyikan saat bermain, muncul lagi saat pause
-float g_MenuBgColor[3] = { 0.06f, 0.06f, 0.06f };                 // warna latar menu
-float g_PopupColor[3] = { 112.f / 255.f, 110.f / 255.f, 215.f / 255.f }; // warna cincin + logo popup
-float g_PopupBgColor[3] = { 6.f / 255.f, 6.f / 255.f, 9.f / 255.f };     // warna latar popup
-// ------------------------------------------------------------------
+float g_MenuAlpha = 0.90f; 
+float g_CornerRounding = 12.0f; 
+float g_PopupScale = 1.0f; 
+float g_PopupAlpha = 0.85f; 
+bool g_HideGInGame = false; 
+float g_MenuBgColor[3] = { 0.06f, 0.06f, 0.06f };                 
+float g_PopupColor[3] = { 112.f / 255.f, 110.f / 255.f, 215.f / 255.f }; 
+float g_PopupBgColor[3] = { 6.f / 255.f, 6.f / 255.f, 9.f / 255.f };     
 
 static bool g_DevModeUnlocked = false;
 static char s_DevPinInput[32] = "";
 
 #define oxorany(x) x
 
-// Снегопад
 struct Snowflake {
     ImVec2 position;
     float speed, size, oscillation, oscillationSpeed;
@@ -93,7 +90,6 @@ void UpdateAndDrawSnow() {
     }
 }
 
-// Ikon restart (panah melingkar)
 static void DrawRestartIcon(ImDrawList* dl, ImVec2 ctr, float r, ImU32 col, float sc) {
     dl->PathArcTo(ctr, r, -1.2f, 4.2f, 28);
     dl->PathStroke(col, 0, 2.8f * sc);
@@ -109,9 +105,6 @@ static void DrawRestartIcon(ImDrawList* dl, ImVec2 ctr, float r, ImU32 col, floa
         col);
 }
 
-// Tombol mengambang (squircle) dengan logo "G".
-// Tap = buka/tutup menu, tahan lalu geser = pindahkan. Disembunyikan saat bermain (opsional)
-// dan muncul lagi saat game di-pause; saat pause muncul juga tombol restart di sampingnya.
 void watqermark() {
     bool inGame = speedrun::IsGameplay();
     bool paused = inGame && speedrun::IsPaused();
@@ -160,7 +153,6 @@ void watqermark() {
 
     if (restartPressed) speedrun::RestartRun(true);
 
-    // ---------- gambar ----------
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     float t = (float)ImGui::GetTime();
     float pulse = g_ShowMenu ? 1.0f : (0.70f + 0.30f * sinf(t * 2.2f));
@@ -176,7 +168,6 @@ void watqermark() {
     ImVec4 glow1 = ac; glow1.w = 0.22f * pulse * g_PopupAlpha;
     ImVec4 glow2 = ac; glow2.w = 0.55f * g_PopupAlpha;
 
-    // cahaya luar (opsional dari Settings)
     if (g_WindowGlowEnabled) {
         for (int i = 3; i >= 1; i--) {
             float ex = (float)i * 3.0f * sc;
@@ -191,7 +182,6 @@ void watqermark() {
     draw->AddRect(ImVec2(bg_min.x + in, bg_min.y + in), ImVec2(bg_max.x - in, bg_max.y - in),
                   ImGui::GetColorU32(inner), round - in, 0, 1.0f * sc);
 
-    // logo "G"
     ImVec2 ctr = ImVec2((bg_min.x + bg_max.x) * 0.5f, (bg_min.y + bg_max.y) * 0.5f);
     float r = size * 0.24f;
     const float aEnd = IM_PI * 1.75f;
@@ -204,7 +194,6 @@ void watqermark() {
     }
     draw->AddCircleFilled(ImVec2(ctr.x + r * 0.85f, ctr.y - r * 0.95f), 2.2f * sc, IM_COL32(255, 255, 255, alphaBody));
 
-    // tombol restart (muncul saat game di-pause)
     if (showRestart) {
         draw->AddRectFilled(r_min, r_max, bodyCol, round);
         draw->AddRect(r_min, r_max, ImGui::GetColorU32(ring), round, 0, 2.0f * sc);
@@ -213,7 +202,6 @@ void watqermark() {
     }
 }
 
-// Запуск ZArchiver
 void OpenFolderInExternalFileManager(const char* targetPath) {
     if (!g_JavaVM || !targetPath) return;
     JNIEnv* env = nullptr;
@@ -263,7 +251,6 @@ void OpenFolderInExternalFileManager(const char* targetPath) {
     if (env->ExceptionCheck()) env->ExceptionClear();
 }
 
-// Перетаскивание
 static ImVec2 menuPosition(0, 0);
 static bool menuPosInit = false;
 static bool isDragging = false;
@@ -295,7 +282,6 @@ void SetupPremiumStyle(float scale) {
     menuscale::menuscalee = scale;
     c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], g_AccentColor[3]);
     
-    // Terapkan sudut melengkung ke style bawaan
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding = g_CornerRounding;
     style.ChildRounding = g_CornerRounding;
@@ -308,23 +294,19 @@ struct TabDef {
     const char* icon;
 };
 
-// ==============================================================
-// ГЛАВНЫЙ РЕНДЕР (ПОЛНОРАЗМЕРНЫЙ ЭКРАН 82% x 85%)
-// ==============================================================
 void DrawMenu() {
     ImGuiIO& io = ImGui::GetIO();
     float dt = io.DeltaTime;
 
-    config::AutoSaveTick();  // simpan otomatis jika pengaturan berubah
+    config::AutoSaveTick();  
     
-    // Terapkan pembulatan secara realtime agar bisa diubah di slider
     ImGui::GetStyle().WindowRounding = g_CornerRounding;
     ImGui::GetStyle().ChildRounding = g_CornerRounding;
     ImGui::GetStyle().FrameRounding = g_CornerRounding;
 
     static float menuAnimAlpha = 0.0f;
     static float menuScaleAnim = 0.0f;
-    menuAnimAlpha = ImLerp(menuAnimAlpha, g_ShowMenu ? g_MenuAlpha : 0.0f, dt * 10.0f); // Pakai g_MenuAlpha для transparan
+    menuAnimAlpha = ImLerp(menuAnimAlpha, g_ShowMenu ? g_MenuAlpha : 0.0f, dt * 10.0f); 
     menuScaleAnim = ImLerp(menuScaleAnim, g_ShowMenu ? 1.0f : 0.6f, dt * 8.0f);
 
     if (!s_SnowInitialized) InitializeSnow();
@@ -334,11 +316,10 @@ void DrawMenu() {
     }
     if (g_ShowMenu && g_SnowEnabled) UpdateAndDrawSnow();
 
-    watqermark(); // Panggil render logo "G"
+    watqermark(); 
 
     if (menuAnimAlpha <= 0.01f) return;
 
-    // Menu ringkas: sekitar 60% lebar dan 80% tinggi layar
     float targetW = io.DisplaySize.x * 0.60f;
     float targetH = io.DisplaySize.y * 0.80f;
     if (targetW < 640.0f) targetW = 640.0f;
@@ -355,10 +336,8 @@ void DrawMenu() {
     ImGui::SetNextWindowSize(winSize);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, menuAnimAlpha);
 
-    // Tema UI Transparan
     ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
     
-    // Ganti background warna jadi tembus pandang berdasarkan g_MenuAlpha
     ImVec4 menuBg(g_MenuBgColor[0], g_MenuBgColor[1], g_MenuBgColor[2], 1.0f);
     ImVec4 menuBgLift(ImMin(menuBg.x + 0.02f, 1.0f), ImMin(menuBg.y + 0.02f, 1.0f), ImMin(menuBg.z + 0.02f, 1.0f), 1.0f);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(menuBg.x, menuBg.y, menuBg.z, g_MenuAlpha));
@@ -372,15 +351,12 @@ void DrawMenu() {
     ImVec2 pos = ImGui::GetWindowPos();
     ImVec2 curSize = ImGui::GetWindowSize();
 
-    // Разделитель сайдбара
     float sidebarW = g_HomeBarWidth * menuscale::menuscale;
     draw->AddLine(ImVec2(pos.x + sidebarW, pos.y), ImVec2(pos.x + sidebarW, pos.y + curSize.y), IM_COL32(50, 50, 50, (int)(255 * g_MenuAlpha)));
     
-    // Top Bar 
     draw->AddRectFilled(pos, ImVec2(pos.x + curSize.x, pos.y + 38.0f * menuscale::menuscale), 
                         ImGui::ColorConvertFloat4ToU32(ImVec4(menuBg.x * 0.7f, menuBg.y * 0.7f, menuBg.z * 0.7f, g_MenuAlpha)), g_CornerRounding, ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight);
 
-    // FPS / frame time indicator
     if (g_ShowFPS) {
         char fpsBuf[64];
         snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS  |  %.1f ms", g_RealFPS, g_FrameTimeMs);
@@ -390,14 +366,10 @@ void DrawMenu() {
                       IM_COL32(150, 150, 160, 255), fpsBuf);
     }
 
-    // Judul menu
     const char* kTitle = "Granny Legacy Mod menu";
     ImVec2 tSz = ImGui::CalcTextSize(kTitle);
     draw->AddText(ImVec2(pos.x + (curSize.x - tSz.x) * 0.5f, pos.y + (38.0f * menuscale::menuscale - tSz.y) * 0.5f), ImGui::GetColorU32(c::accent), kTitle);
 
-    // ==============================================================
-    // ЛЕВЫЙ САЙДБАР (КРУПНЫЕ КНОПКИ 200 x 46px)
-    // ==============================================================
     ImGui::SetCursorPos(ImVec2(10 * menuscale::menuscale, 48 * menuscale::menuscale));
     ImGui::BeginGroup();
 
@@ -419,7 +391,6 @@ void DrawMenu() {
 
     ImVec2 tabSz(sidebarW - 20.0f * menuscale::menuscale, 38.0f * menuscale::menuscale);
 
-    // Анимированная подложка
     draw->AddRectFilled(
         ImVec2(pos.x + tabBgAnim.value.x, pos.y + tabBgAnim.value.y),
         ImVec2(pos.x + tabBgAnim.value.x + tabSz.x, pos.y + tabBgAnim.value.y + tabSz.y),
@@ -446,21 +417,16 @@ void DrawMenu() {
         ImU32 iconCol = isCur ? ImGui::GetColorU32(c::accent) : IM_COL32(130, 130, 145, 255);
 
         (void)iconCol;
-        // Penanda aksen untuk tab aktif (tanpa ikon, supaya sederhana)
         if (isCur) {
             draw->AddRectFilled(ImVec2(sPos.x + 5 * menuscale::menuscale, sPos.y + 10 * menuscale::menuscale),
                                 ImVec2(sPos.x + 8 * menuscale::menuscale, sPos.y + tabSz.y - 10 * menuscale::menuscale),
                                 ImGui::GetColorU32(c::accent), 2.0f);
         }
-        // Teks tab
         draw->AddText(ImVec2(sPos.x + 18 * menuscale::menuscale, sPos.y + (tabSz.y - ImGui::GetFontSize()) * 0.5f), textCol, tab.name);
     }
     ImGui::PopStyleVar();
     ImGui::EndGroup();
 
-    // ==============================================================
-    // ПРАВАЯ ЧАСТЬ: 2 ШИРОКИЕ КОЛОНКИ НА ВЕСЬ ЭКРАН
-    // ==============================================================
     float mainStartX = sidebarW + 12.0f * menuscale::menuscale;
     float mainW = curSize.x - mainStartX - 12.0f * menuscale::menuscale;
     float colGap = 12.0f * menuscale::menuscale;
@@ -469,7 +435,6 @@ void DrawMenu() {
 
     ImGui::SetCursorPos(ImVec2(mainStartX, 46.0f * menuscale::menuscale));
 
-    // TAB 0: COMBAT
     if (activeTab == 0) {
         ImGui::BeginChild("##c0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Aimbot");
@@ -539,7 +504,6 @@ void DrawMenu() {
         edited::checkbox("No Spread / Recoil", &noRecoil);
         ImGui::EndChild();
     }
-    // TAB 1: VISUALS
     else if (activeTab == 1) {
         ImGui::BeginChild("##v0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Enemies ESP");
@@ -585,7 +549,6 @@ void DrawMenu() {
         edited::checkbox("Disable Baked Lightmaps", &reshade::disableLightmaps);
         ImGui::EndChild();
     }
-    // TAB 2: PLAYER
     else if (activeTab == 2) {
         ImGui::BeginChild("##p0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Player Status");
@@ -616,7 +579,6 @@ void DrawMenu() {
         }
         ImGui::EndChild();
     }
-    // TAB 3: WORLD
     else if (activeTab == 3) {
         ImGui::BeginChild("##w0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "World Speed");
@@ -654,11 +616,9 @@ void DrawMenu() {
         if (edited::buttonn("Win Instant (Once)", ImVec2(-1, 40 * menuscale::menuscale))) auto_farm::TriggerInstantWin();
         ImGui::EndChild();
     }
-    // TAB 4: SPEEDRUN
     else if (activeTab == 4) {
         speedrun::DrawMenu(colW, colH, colGap);
     }
-    // TAB 5: CONFIGS
     else if (activeTab == 5) {
         ImGui::BeginChild("##cfg0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Config Manager");
@@ -685,7 +645,6 @@ void DrawMenu() {
         }
         ImGui::EndChild();
     }
-    // TAB 6: SETTINGS (DITAMBAHKAN KUSTOMISASI BARU DI SINI)
     else if (activeTab == 6) {
         ImGui::BeginChild("##st0", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Menu Settings");
@@ -697,7 +656,6 @@ void DrawMenu() {
         edited::checkbox("Show FPS Counter", &g_ShowFPS);
         edited::slider_float("Background Dim", &g_BackgroundDim, 0.0f, 1.0f, "%.2f");
         
-        // -- FITUR BARU SESUAI PERMINTAAN --
         edited::slider_float("Menu Opacity", &g_MenuAlpha, 0.1f, 1.0f, "%.2f");
         ImGui::ColorEdit3("Menu Color", g_MenuBgColor, ImGuiColorEditFlags_NoInputs);
         edited::slider_float("Menu Scale", &menuscale::menuscalee, 0.5f, 1.5f, "%.2f");
@@ -711,8 +669,10 @@ void DrawMenu() {
         ImGui::ColorEdit3("Popup Color", g_PopupColor, ImGuiColorEditFlags_NoInputs);
         ImGui::ColorEdit3("Popup Background", g_PopupBgColor, ImGuiColorEditFlags_NoInputs);
         edited::checkbox("Hide Popup During Gameplay", &g_HideGInGame);
-        ImGui::TextWrapped("%s", "The popup comes back when the game is paused.");
-        // ---------------------------------
+        
+        ImGui::Spacing();
+        edited::checkbox("Show Floating Restart Button", &speedrun::restartButton);
+        ImGui::TextWrapped("%s", "The popup comes back when the game is paused, or use the floating restart.");
 
         edited::slider_float("Sidebar Width", &g_HomeBarWidth, 120.0f, 240.0f, "%.0f px");
         edited::slider_float("Scrollbar Size", &g_ScrollbarSize, 6.0f, 20.0f, "%.0f px");
@@ -735,7 +695,7 @@ void DrawMenu() {
             g_CornerRounding = 12.0f;
             g_PopupScale = 1.0f;
             g_PopupAlpha = 0.85f;
-            g_HideGInGame = true;
+            g_HideGInGame = false;
             g_HomeBarWidth = 180.0f;
             g_ScrollbarSize = 10.0f;
             g_MenuBgColor[0] = 0.06f; g_MenuBgColor[1] = 0.06f; g_MenuBgColor[2] = 0.06f;
@@ -769,7 +729,6 @@ void DrawMenu() {
         }
         ImGui::EndChild();
     }
-    // DEV TABS
     else if (activeTab == 7 && g_DevModeUnlocked) scene_explorer::DrawMenu();
     else if (activeTab == 8 && g_DevModeUnlocked) Logger::DrawTab();
 
