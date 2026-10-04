@@ -286,8 +286,11 @@ namespace aim {
         return false;
     }
 
-    void ScanLiveItems() {
+        void ScanLiveItems() {
+        // [PERBAIKAN] Simpan daftar lama agar kita tidak kehilangan data 'selected'
+        std::vector<LiveItemTarget> oldLive = liveItems;
         liveItems.clear();
+        
         if (!IsSceneReady()) return;
 
         std::unordered_set<void*> addedTransforms;
@@ -296,11 +299,26 @@ namespace aim {
             if (!tr || !IsNativeObjectAlive(tr)) return;
             if (addedTransforms.find(tr) != addedTransforms.end()) return;
             if (IsHeldByPlayer(tr)) return;            
+            
             std::string base = NormalizeItemName(rawName);
             if (base.empty()) return;
             addedTransforms.insert(tr);
-            EnsureItemType(base);
-            liveItems.push_back({ rawName, tr, true, base });
+            
+            // [PERBAIKAN] Cek apakah item ini sudah ada di scan sebelumnya, pertahankan status centangnya
+            bool isSelected = s_DefaultNewItems;
+            for (auto& old : oldLive) {
+                if (old.transform == tr) {
+                    isSelected = old.selected;
+                    break;
+                }
+            }
+            
+            // Jangan selalu paksa s_ItemTypes menjadi true
+            if (s_ItemTypes.find(base) == s_ItemTypes.end()) {
+                s_ItemTypes.emplace(base, s_DefaultNewItems); 
+            }
+            
+            liveItems.push_back({ rawName, tr, isSelected, base });
         };
 
         if (oGameObjectFind && il2cpp_string_new) {
@@ -309,44 +327,36 @@ namespace aim {
                 "Objects/MainItemSelection",
                 "Objects/MapItems"
             };
-
             for (const char* path : containerPaths) {
                 void* str = il2cpp_string_new(path);
                 if (!str) continue;
-
                 void* containerGO = oGameObjectFind(str);
                 if (containerGO && IsNativeObjectAlive(containerGO) && oGameObjectGetTransform) {
                     void* containerTr = oGameObjectGetTransform(containerGO);
                     int childCount = SafeGetChildCount(containerTr);
-
                     for (int i = 0; i < childCount; i++) {
                         void* cTr = SafeGetChild(containerTr, i);
                         if (!cTr || !IsNativeObjectAlive(cTr)) continue;
-
                         void* cGO = oComponentGetGameObject ? oComponentGetGameObject(cTr) : nullptr;
                         bool isAct = (cGO && oGetGameObjectActive) ? oGetGameObjectActive(cGO) : true;
                         if (!isAct) continue;
-
                         std::string cName = GetUnityObjectName(cTr);
                         if (!cName.empty()) addLive(cName, cTr);
                     }
                 }
             }
         }
-
+        
         if (oGameObjectFind && il2cpp_string_new) {
             static const char* kFindAliases[] = { "Passcode" };   
             std::vector<const char*> findNames(std::begin(kKnownItems), std::end(kKnownItems));
             for (const char* al : kFindAliases) findNames.push_back(al);
-
             for (const char* baseName : findNames) {
                 std::string cloneName = std::string(baseName) + "(Clone)";
                 const char* toFind[2] = { baseName, cloneName.c_str() };
-
                 for (int f = 0; f < 2; f++) {
                     void* str = il2cpp_string_new(toFind[f]);
                     if (!str) continue;
-
                     void* go = oGameObjectFind(str);
                     if (go && IsNativeObjectAlive(go)) {
                         bool isAct = oGetGameObjectActive ? oGetGameObjectActive(go) : true;
@@ -358,14 +368,8 @@ namespace aim {
                 }
             }
         }
-
-        if (liveItems.size() != s_LastLiveCount) {
-            s_LastLiveCount = liveItems.size();
-            std::string names;
-            for (size_t i = 0; i < liveItems.size() && i < 10; i++) names += liveItems[i].name + " ";
-            Logger::Log("AIM", LOG_OK, "Live items: %d : %s", (int)liveItems.size(), names.c_str());
-        }
     }
+
 
     void ExportItemsToTxt() {
         std::string exportText = "# Kahanium Map Items List:\n";

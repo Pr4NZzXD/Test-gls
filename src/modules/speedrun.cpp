@@ -19,6 +19,14 @@
 
 namespace config { std::string GetActiveConfigPath(); }
 
+// Mengambil variabel global dari menu_3.cpp untuk sinkronisasi gaya RGB
+extern bool g_PopupRGBEnabled;
+extern float g_PopupRGBSpeed;
+extern float g_PopupColor[3];
+extern float g_PopupBgColor[3];
+extern bool g_WindowGlowEnabled;
+extern float g_PopupAlpha;
+
 namespace speedrun {
     bool autoUnlockShop = false;
     bool restartButton = false;
@@ -32,7 +40,6 @@ namespace speedrun {
     bool extraTraps = false;
     bool lavaMode = false;
 
-    // State RNG Entity
     int grannySpawnChoice = 0;
     int grandpaSpawnChoice = 0;
 
@@ -45,19 +52,12 @@ namespace speedrun {
     static float s_SceneTimer = 0.0f;
 
     static std::vector<EntitySpawnPos> grannyPositions = {
-        {"Random", 0},
-        {"Pos 1 (Basement)", 1},
-        {"Pos 2 (Attic)", 2},
-        {"Pos 3 (Kitchen)", 3},
-        {"Pos 4 (Bedroom)", 4}
+        {"Random", 0}, {"Pos 1 (Basement)", 1}, {"Pos 2 (Attic)", 2},
+        {"Pos 3 (Kitchen)", 3}, {"Pos 4 (Bedroom)", 4}
     };
-
     static std::vector<EntitySpawnPos> grandpaPositions = {
-        {"Random", 0},
-        {"Pos 1 (Living Room)", 1},
-        {"Pos 2 (Garage)", 2},
-        {"Pos 3 (Bathroom)", 3},
-        {"Pos 4 (Yard)", 4}
+        {"Random", 0}, {"Pos 1 (Living Room)", 1}, {"Pos 2 (Garage)", 2},
+        {"Pos 3 (Bathroom)", 3}, {"Pos 4 (Yard)", 4}
     };
 
     const std::vector<EntitySpawnPos>& GetAvailableSpawnPos(EntityType type) {
@@ -77,7 +77,6 @@ namespace speedrun {
     void Init() {
         ClearCache();
         srand((unsigned)time(0));
-        Logger::Log("SPEEDRUN", LOG_OK, "speedrun::Init() -> Speedrun module initialized.");
     }
 
     static const char* kShopKeys[] = {
@@ -99,7 +98,6 @@ namespace speedrun {
         for (const char* key : kShopKeys) {
             void* kStr = il2cpp_string_new(key);
             if (!kStr) continue;
-
             int def = 0;
             void* exc = nullptr;
             void* gArgs[2] = { kStr, &def };
@@ -107,7 +105,6 @@ namespace speedrun {
             int cur = 0;
             if (boxed && !exc) cur = *(int*)il2cpp_object_unbox(boxed);
             if (exc) continue;
-
             if (cur != 1) {
                 int one = 1;
                 exc = nullptr;
@@ -116,11 +113,7 @@ namespace speedrun {
                 if (!exc) changed++;
             }
         }
-
-        if (changed > 0 && mSave) {
-            void* exc = nullptr;
-            il2cpp_runtime_invoke(mSave, nullptr, nullptr, &exc);
-        }
+        if (changed > 0 && mSave) il2cpp_runtime_invoke(mSave, nullptr, nullptr, nullptr);
         return changed;
     }
 
@@ -167,11 +160,8 @@ namespace speedrun {
 
     static bool Alive(void* o) { return o && IsNativeObjectAlive(o); }
 
-    // Logika Pengaturan RNG Entitas berdasarkan class EnemyController[span_1](start_span)[span_1](end_span)
     static void ApplyEntitySpawnPositions(void* ec) {
         if (!ec) return;
-
-        // Atur posisi Granny menggunakan field Pos1Granny hingga Pos4Granny[span_2](start_span)[span_2](end_span)
         if (grannySpawnChoice > 0) {
             std::string fieldName = "Pos" + std::to_string(grannySpawnChoice) + "Granny";
             void* targetTransform = ReadPtr(ec, "EnemyController", fieldName.c_str());
@@ -180,11 +170,8 @@ namespace speedrun {
                 WritePtr(ec, "EnemyController", "Pos2Granny", targetTransform);
                 WritePtr(ec, "EnemyController", "Pos3Granny", targetTransform);
                 WritePtr(ec, "EnemyController", "Pos4Granny", targetTransform);
-                Logger::Log("SPEEDRUN", LOG_OK, "Granny spawn locked to: %s", fieldName.c_str());
             }
         }
-
-        // Atur posisi Grandpa menggunakan field Pos1Grandpa hingga Pos4Grandpa[span_3](start_span)[span_3](end_span)
         if (grandpaSpawnChoice > 0) {
             std::string fieldName = "Pos" + std::to_string(grandpaSpawnChoice) + "Grandpa";
             void* targetTransform = ReadPtr(ec, "EnemyController", fieldName.c_str());
@@ -193,7 +180,6 @@ namespace speedrun {
                 WritePtr(ec, "EnemyController", "Pos2Grandpa", targetTransform);
                 WritePtr(ec, "EnemyController", "Pos3Grandpa", targetTransform);
                 WritePtr(ec, "EnemyController", "Pos4Grandpa", targetTransform);
-                Logger::Log("SPEEDRUN", LOG_OK, "Grandpa spawn locked to: %s", fieldName.c_str());
             }
         }
     }
@@ -231,11 +217,9 @@ namespace speedrun {
         if (momRoute < 1 || momRoute > 2) return;
         void* comp = FirstInstance("AI_MomSpider");
         if (!Alive(comp)) return;
-
         void* run1 = ReadPtr(comp, "AI_MomSpider", "Run1");
         void* run2 = ReadPtr(comp, "AI_MomSpider", "Run2");
         if (!run1 || !run2) return;
-
         if (momRoute == 1) WritePtr(comp, "AI_MomSpider", "Run2", run1);
         else               WritePtr(comp, "AI_MomSpider", "Run1", run2);
     }
@@ -244,7 +228,6 @@ namespace speedrun {
         if (!extraTraps && !lavaMode) return;
         void* sem = FirstInstance("SpecialEffectsManager");
         if (!sem) return;
-
         if (extraTraps) {
             void* go = ReadPtr(sem, "SpecialEffectsManager", "extraTraps");
             if (Alive(go) && oSetGameObjectActive) oSetGameObjectActive(go, true);
@@ -258,16 +241,9 @@ namespace speedrun {
 
     static void ApplyOverrides() {
         void* om = FirstInstance("ObjectsManager");
-        if (om) {
-            ApplyRat(om);
-            ApplyVase(om);
-        }
-        
+        if (om) { ApplyRat(om); ApplyVase(om); }
         void* ec = FirstInstance("EnemyController");
-        if (ec) {
-            ApplyEntitySpawnPositions(ec);
-        }
-
+        if (ec) ApplyEntitySpawnPositions(ec);
         ApplyMomSpider();
         ApplyEffects();
     }
@@ -284,7 +260,6 @@ namespace speedrun {
     }
 
     bool IsPaused() { return CurrentTimeScale() < 0.001f; }
-
     bool IsGameplay() {
         static double s_last = -1.0;
         static bool s_val = false;
@@ -298,9 +273,7 @@ namespace speedrun {
 
     void RestartRun(bool allowWhilePaused) {
         if (!allowWhilePaused && IsPaused()) return;
-        
         aim::ClearCache(); 
-
         void* pausedCls = FindClass("", "Paused");
         void* inst = FirstInstance("Paused");
         void* method = pausedCls ? il2cpp_class_get_method_from_name(pausedCls, "RestartP", 0) : nullptr;
@@ -335,8 +308,7 @@ namespace speedrun {
 
         ImGui::SetNextWindowPos(bmin);
         ImGui::SetNextWindowSize(ImVec2(size, size));
-        ImGui::Begin("##sr_restart", nullptr,
-            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
+        ImGui::Begin("##sr_restart", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
         bool pressed = ImGui::InvisibleButton("##sr_restart_btn", ImVec2(size, size));
         bool held = ImGui::IsItemActive();
         if (held && ImGui::IsMouseDragging(0, 8.0f * sc)) {
@@ -348,18 +320,45 @@ namespace speedrun {
         if (!ImGui::IsMouseDown(0)) s_Moved = false;
         ImGui::End();
 
+        // -------------------------------------------------------------
+        // [PERBAIKAN] Mengaplikasikan RGB dan efek Glow persis seperti Pop-up G
+        // -------------------------------------------------------------
+        float rColor[3] = { g_PopupColor[0], g_PopupColor[1], g_PopupColor[2] };
+        if (g_PopupRGBEnabled) {
+            float time = (float)ImGui::GetTime();
+            float hue = fmodf(time * g_PopupRGBSpeed, 1.0f); 
+            ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, rColor[0], rColor[1], rColor[2]);
+        }
+
         ImDrawList* dl = ImGui::GetForegroundDrawList();
-        ImVec4 ac = c::accent;
+        float t = (float)ImGui::GetTime();
+        float pulse = (0.70f + 0.30f * sinf(t * 2.2f));
         float round = size * 0.34f;
-        dl->AddRectFilled(bmin, bmax, IM_COL32(6, 6, 9, held ? 255 : 215), round);
-        ImVec4 ring = ac; ring.w = held ? 1.0f : 0.65f;
+        
+        ImVec4 ac = ImVec4(rColor[0], rColor[1], rColor[2], 1.0f);
+        int alphaBody = (int)(245.0f * g_PopupAlpha);
+        ImU32 bodyCol = IM_COL32((int)(g_PopupBgColor[0] * 255.0f), (int)(g_PopupBgColor[1] * 255.0f), (int)(g_PopupBgColor[2] * 255.0f), alphaBody);
+
+        ImVec4 ring = ac; ring.w = (held ? 1.0f : 0.65f) * g_PopupAlpha;
+        ImVec4 core = ImVec4(ac.x * 0.45f + 0.55f, ac.y * 0.45f + 0.55f, ac.z * 0.45f + 0.55f, g_PopupAlpha);
+
+        if (g_WindowGlowEnabled) {
+            for (int i = 3; i >= 1; i--) {
+                float ex = (float)i * 2.5f * sc;
+                ImVec4 g = ac; g.w = 0.12f * pulse * g_PopupAlpha;
+                dl->AddRectFilled(ImVec2(bmin.x - ex, bmin.y - ex), ImVec2(bmax.x + ex, bmax.y + ex), ImGui::GetColorU32(g), round + ex);
+            }
+        }
+        
+        dl->AddRectFilled(bmin, bmax, bodyCol, round);
         dl->AddRect(bmin, bmax, ImGui::GetColorU32(ring), round, 0, 1.8f * sc);
 
         ImVec2 ctr((bmin.x + bmax.x) * 0.5f, (bmin.y + bmax.y) * 0.5f);
         float r = size * 0.22f;
-        ImU32 col = IM_COL32(235, 235, 245, 255);
+        ImU32 iconCol = ImGui::GetColorU32(core); 
+        
         dl->PathArcTo(ctr, r, -1.2f, 4.2f, 28);
-        dl->PathStroke(col, 0, 2.6f * sc);
+        dl->PathStroke(iconCol, 0, 2.6f * sc);
         float a = 4.2f;
         ImVec2 tip(ctr.x + cosf(a) * r, ctr.y + sinf(a) * r);
         ImVec2 dir(-sinf(a), cosf(a));
@@ -369,24 +368,21 @@ namespace speedrun {
             ImVec2(tip.x + dir.x * hh, tip.y + dir.y * hh),
             ImVec2(tip.x - dir.x * hh * 0.2f + nrm.x * hh * 0.8f, tip.y - dir.y * hh * 0.2f + nrm.y * hh * 0.8f),
             ImVec2(tip.x - dir.x * hh * 0.2f - nrm.x * hh * 0.8f, tip.y - dir.y * hh * 0.2f - nrm.y * hh * 0.8f),
-            col);
+            iconCol);
     }
 
     void Update() {
         float dt = ImGui::GetIO().DeltaTime;
-
         s_SceneTimer += dt;
         if (s_SceneName.empty() || s_SceneTimer > 0.5f) {
             s_SceneName = auto_farm::GetCurrentSceneName();
             s_SceneTimer = 0.0f;
         }
-
         if (autoUnlockShop && !s_AutoDone) {
             s_AutoDone = true;
             int n = UnlockAllShop();
             if (n > 0) s_Status = "Auto-unlock: " + std::to_string(n) + " item(s) unlocked";
         }
-
         if (s_SceneName == "Scene") {
             s_InGameTimer += dt;
             if (!s_Applied && s_InGameTimer >= 1.5f) {
@@ -443,20 +439,17 @@ namespace speedrun {
         ImGui::Separator();
         ImGui::Spacing();
 
-        // Menu Dropdown Granny RNG
         const auto& gPos = GetAvailableSpawnPos(EntityType::GRANNY);
         std::vector<const char*> gItems;
         for (const auto& p : gPos) gItems.push_back(p.name.c_str());
         edited::combo("Granny Location", &grannySpawnChoice, gItems.data(), gItems.size());
 
-        // Menu Dropdown Grandpa RNG
         const auto& gpPos = GetAvailableSpawnPos(EntityType::GRANDPA);
         std::vector<const char*> gpItems;
         for (const auto& p : gpPos) gpItems.push_back(p.name.c_str());
         edited::combo("Grandpa Location", &grandpaSpawnChoice, gpItems.data(), gpItems.size());
 
         ImGui::Spacing();
-
         static const char* ratItems[] = { "Random", "Left", "Right" };
         static const char* momItems[] = { "Random", "Tunnel", "Elevator" };
         edited::combo("Door-Opening Rat", &ratChoice, ratItems, 3);
