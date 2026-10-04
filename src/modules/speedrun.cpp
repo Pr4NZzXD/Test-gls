@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 #include <dlfcn.h>
+#include <cstdlib> 
+#include <ctime>   
 
 namespace config { std::string GetActiveConfigPath(); }
 
@@ -30,6 +32,10 @@ namespace speedrun {
     bool extraTraps = false;
     bool lavaMode = false;
 
+    // State RNG Entity
+    int grannySpawnChoice = 0;
+    int grandpaSpawnChoice = 0;
+
     static bool s_AutoDone = false;
     static bool s_Applied = false;
     static float s_InGameTimer = 0.0f;
@@ -37,6 +43,28 @@ namespace speedrun {
     static std::string s_DumpStatus = "";
     static std::string s_SceneName = "";
     static float s_SceneTimer = 0.0f;
+
+    static std::vector<EntitySpawnPos> grannyPositions = {
+        {"Random", 0},
+        {"Pos 1 (Basement)", 1},
+        {"Pos 2 (Attic)", 2},
+        {"Pos 3 (Kitchen)", 3},
+        {"Pos 4 (Bedroom)", 4}
+    };
+
+    static std::vector<EntitySpawnPos> grandpaPositions = {
+        {"Random", 0},
+        {"Pos 1 (Living Room)", 1},
+        {"Pos 2 (Garage)", 2},
+        {"Pos 3 (Bathroom)", 3},
+        {"Pos 4 (Yard)", 4}
+    };
+
+    const std::vector<EntitySpawnPos>& GetAvailableSpawnPos(EntityType type) {
+        if (type == EntityType::GRANNY) return grannyPositions;
+        if (type == EntityType::GRANDPA) return grandpaPositions;
+        return grannyPositions;
+    }
 
     void ClearCache() {
         s_AutoDone = false;
@@ -48,6 +76,7 @@ namespace speedrun {
 
     void Init() {
         ClearCache();
+        srand((unsigned)time(0));
         Logger::Log("SPEEDRUN", LOG_OK, "speedrun::Init() -> Speedrun module initialized.");
     }
 
@@ -92,7 +121,6 @@ namespace speedrun {
             void* exc = nullptr;
             il2cpp_runtime_invoke(mSave, nullptr, nullptr, &exc);
         }
-        Logger::Log("SPEEDRUN", LOG_OK, "Shop unlock: %d item(s) newly unlocked.", changed);
         return changed;
     }
 
@@ -139,17 +167,44 @@ namespace speedrun {
 
     static bool Alive(void* o) { return o && IsNativeObjectAlive(o); }
 
+    // Logika Pengaturan RNG Entitas berdasarkan class EnemyController[span_1](start_span)[span_1](end_span)
+    static void ApplyEntitySpawnPositions(void* ec) {
+        if (!ec) return;
+
+        // Atur posisi Granny menggunakan field Pos1Granny hingga Pos4Granny[span_2](start_span)[span_2](end_span)
+        if (grannySpawnChoice > 0) {
+            std::string fieldName = "Pos" + std::to_string(grannySpawnChoice) + "Granny";
+            void* targetTransform = ReadPtr(ec, "EnemyController", fieldName.c_str());
+            if (Alive(targetTransform)) {
+                WritePtr(ec, "EnemyController", "Pos1Granny", targetTransform);
+                WritePtr(ec, "EnemyController", "Pos2Granny", targetTransform);
+                WritePtr(ec, "EnemyController", "Pos3Granny", targetTransform);
+                WritePtr(ec, "EnemyController", "Pos4Granny", targetTransform);
+                Logger::Log("SPEEDRUN", LOG_OK, "Granny spawn locked to: %s", fieldName.c_str());
+            }
+        }
+
+        // Atur posisi Grandpa menggunakan field Pos1Grandpa hingga Pos4Grandpa[span_3](start_span)[span_3](end_span)
+        if (grandpaSpawnChoice > 0) {
+            std::string fieldName = "Pos" + std::to_string(grandpaSpawnChoice) + "Grandpa";
+            void* targetTransform = ReadPtr(ec, "EnemyController", fieldName.c_str());
+            if (Alive(targetTransform)) {
+                WritePtr(ec, "EnemyController", "Pos1Grandpa", targetTransform);
+                WritePtr(ec, "EnemyController", "Pos2Grandpa", targetTransform);
+                WritePtr(ec, "EnemyController", "Pos3Grandpa", targetTransform);
+                WritePtr(ec, "EnemyController", "Pos4Grandpa", targetTransform);
+                Logger::Log("SPEEDRUN", LOG_OK, "Grandpa spawn locked to: %s", fieldName.c_str());
+            }
+        }
+    }
+
     static void ApplyRat(void* om) {
         if (ratChoice < 1 || ratChoice > 2) return;
         void* r1 = ReadPtr(om, "ObjectsManager", "RemoteRatHang1");
         void* r2 = ReadPtr(om, "ObjectsManager", "RemoteRatHang2");
-        if (!Alive(r1) || !Alive(r2)) {
-            Logger::Log("SPEEDRUN", LOG_WARN, "Remote rat: RemoteRatHang1/2 tidak ditemukan.");
-            return;
-        }
+        if (!Alive(r1) || !Alive(r2)) return;
         WriteBool(r1, "RemoteRat", "TheOne", ratChoice == 1);
         WriteBool(r2, "RemoteRat", "TheOne", ratChoice == 2);
-        Logger::Log("SPEEDRUN", LOG_OK, "Remote rat TheOne -> RemoteRatHang%d", ratChoice);
     }
 
     static void ApplyVase(void* om) {
@@ -170,29 +225,12 @@ namespace speedrun {
         Vector3 p{ 0, 0, 0 };
         oTransformGetPosition(posTr, &p);
         oTransformSetPosition(vaseTr, &p);
-        Logger::Log("SPEEDRUN", LOG_OK, "Vase dipindah ke posisi %d dari %d", vaseChoice, len);
     }
 
     static void ApplyMomSpider() {
         if (momRoute < 1 || momRoute > 2) return;
-
-        void* comp = nullptr;
-        void* esc = FirstInstance("Escapes");
-        if (esc && g_GetComponentMethod) {
-            void* go = ReadPtr(esc, "Escapes", "MomSpider");   
-            void* typeObj = TypeObjOf("AI_MomSpider");
-            if (Alive(go) && typeObj) {
-                void* exc = nullptr;
-                void* args[1] = { typeObj };
-                comp = il2cpp_runtime_invoke(g_GetComponentMethod, go, args, &exc);
-                if (exc) comp = nullptr;
-            }
-        }
-        if (!Alive(comp)) comp = FirstInstance("AI_MomSpider");
-        if (!Alive(comp)) {
-            Logger::Log("SPEEDRUN", LOG_WARN, "Spider Mom: komponen AI_MomSpider tidak ditemukan.");
-            return;
-        }
+        void* comp = FirstInstance("AI_MomSpider");
+        if (!Alive(comp)) return;
 
         void* run1 = ReadPtr(comp, "AI_MomSpider", "Run1");
         void* run2 = ReadPtr(comp, "AI_MomSpider", "Run2");
@@ -200,30 +238,21 @@ namespace speedrun {
 
         if (momRoute == 1) WritePtr(comp, "AI_MomSpider", "Run2", run1);
         else               WritePtr(comp, "AI_MomSpider", "Run1", run2);
-        Logger::Log("SPEEDRUN", LOG_OK, "Spider Mom route -> %s", momRoute == 1 ? "Run1 (Tunnel)" : "Run2 (Elevator)");
     }
 
     static void ApplyEffects() {
         if (!extraTraps && !lavaMode) return;
         void* sem = FirstInstance("SpecialEffectsManager");
-        if (!sem) {
-            Logger::Log("SPEEDRUN", LOG_WARN, "SpecialEffectsManager tidak ditemukan.");
-            return;
-        }
+        if (!sem) return;
+
         if (extraTraps) {
             void* go = ReadPtr(sem, "SpecialEffectsManager", "extraTraps");
-            if (Alive(go) && oSetGameObjectActive) {
-                oSetGameObjectActive(go, true);
-                Logger::Log("SPEEDRUN", LOG_OK, "Extra Traps diaktifkan.");
-            }
+            if (Alive(go) && oSetGameObjectActive) oSetGameObjectActive(go, true);
         }
         if (lavaMode) {
             WriteBool(sem, "SpecialEffectsManager", "lavaAtmosphereOn", true);
             void* rise = ReadPtr(sem, "SpecialEffectsManager", "lavaRise");
-            if (Alive(rise) && oSetGameObjectActive) {
-                oSetGameObjectActive(rise, true);
-                Logger::Log("SPEEDRUN", LOG_OK, "Lava Mode diaktifkan (lavaRise).");
-            }
+            if (Alive(rise) && oSetGameObjectActive) oSetGameObjectActive(rise, true);
         }
     }
 
@@ -232,15 +261,18 @@ namespace speedrun {
         if (om) {
             ApplyRat(om);
             ApplyVase(om);
-        } else {
-            Logger::Log("SPEEDRUN", LOG_WARN, "ObjectsManager tidak ditemukan.");
         }
+        
+        void* ec = FirstInstance("EnemyController");
+        if (ec) {
+            ApplyEntitySpawnPositions(ec);
+        }
+
         ApplyMomSpider();
         ApplyEffects();
     }
 
     typedef float (*GetTimeScale_t)();
-
     static float CurrentTimeScale() {
         static GetTimeScale_t getTS = nullptr;
         static bool resolved = false;
@@ -275,22 +307,17 @@ namespace speedrun {
         if (inst && method) {
             void* exc = nullptr;
             il2cpp_runtime_invoke(method, inst, nullptr, &exc);
-            if (!exc) {
-                Logger::Log("SPEEDRUN", LOG_OK, "Restart: Paused.RestartP() called.");
-                return;
-            }
+            if (!exc) return;
         }
         if (oSetTimeScale) oSetTimeScale(1.0f);
         auto_farm::LoadSceneByName("Scene");
-        Logger::Log("SPEEDRUN", LOG_WARN, "Restart: Paused.RestartP() failed, reloading scene.");
     }
 
     static void DoRestart() { RestartRun(false); }
 
     void DrawRestartButton() {
         if (!restartButton) return;
-        if (s_SceneName != "Scene") return;   
-        if (g_ShowMenu) return;               
+        if (s_SceneName != "Scene" || g_ShowMenu) return;               
 
         float sc = menuscale::menuscale;
         float size = 46.0f * sc;
@@ -362,131 +389,14 @@ namespace speedrun {
 
         if (s_SceneName == "Scene") {
             s_InGameTimer += dt;
-            if (!s_Applied && s_InGameTimer >= 2.0f) {
+            if (!s_Applied && s_InGameTimer >= 1.5f) {
                 s_Applied = true;
                 ApplyOverrides();
             }
         } else {
             s_InGameTimer = 0.0f;
+            s_Applied = false; 
         }
-    }
-
-    typedef size_t      (*image_get_class_count_t)(void* image);
-    typedef void*       (*image_get_class_t)(void* image, size_t index);
-    typedef void*       (*class_get_methods_t)(void* klass, void** iter);
-    typedef void*       (*class_get_fields_t)(void* klass, void** iter);
-    typedef void*       (*class_get_parent_t)(void* klass);
-    typedef const char* (*method_get_name_t)(void* method);
-    typedef uint32_t    (*method_get_param_count_t)(void* method);
-    typedef void*       (*method_get_param_t)(void* method, uint32_t index);
-    typedef void*       (*method_get_return_type_t)(void* method);
-    typedef uint32_t    (*method_get_flags_t)(void* method, uint32_t* iflags);
-    typedef const char* (*field_get_name_t)(void* field);
-    typedef void*       (*field_get_type_t)(void* field);
-    typedef char*       (*type_get_name_t)(void* type);
-    typedef const char* (*image_get_name_t)(void* image);
-
-    static void* Sym(const char* name) {
-        static void* h = dlopen("libil2cpp.so", RTLD_NOW | RTLD_NOLOAD);
-        void* p = h ? dlsym(h, name) : nullptr;
-        if (!p) p = dlsym(RTLD_DEFAULT, name);
-        return p;
-    }
-
-    bool DumpClasses() {
-        auto image_get_class_count = (image_get_class_count_t)Sym("il2cpp_image_get_class_count");
-        auto image_get_class       = (image_get_class_t)Sym("il2cpp_image_get_class");
-        auto class_get_methods     = (class_get_methods_t)Sym("il2cpp_class_get_methods");
-        auto class_get_fields      = (class_get_fields_t)Sym("il2cpp_class_get_fields");
-        auto class_get_parent      = (class_get_parent_t)Sym("il2cpp_class_get_parent");
-        auto method_get_name       = (method_get_name_t)Sym("il2cpp_method_get_name");
-        auto method_get_param_count= (method_get_param_count_t)Sym("il2cpp_method_get_param_count");
-        auto method_get_param      = (method_get_param_t)Sym("il2cpp_method_get_param");
-        auto method_get_return_type= (method_get_return_type_t)Sym("il2cpp_method_get_return_type");
-        auto field_get_name        = (field_get_name_t)Sym("il2cpp_field_get_name");
-        auto field_get_type        = (field_get_type_t)Sym("il2cpp_field_get_type");
-        auto type_get_name         = (type_get_name_t)Sym("il2cpp_type_get_name");
-        auto image_get_name        = (image_get_name_t)Sym("il2cpp_image_get_name");
-
-        if (!image_get_class_count || !image_get_class || !class_get_methods || !class_get_fields ||
-            !method_get_name || !field_get_name || !il2cpp_class_get_name ||
-            !il2cpp_domain_get || !il2cpp_domain_get_assemblies || !il2cpp_assembly_get_image || !image_get_name) {
-            s_DumpStatus = "Failed: IL2CPP functions not found";
-            return false;
-        }
-
-        std::string path = config::GetActiveConfigPath() + "/dump_classes.txt";
-        FILE* f = fopen(path.c_str(), "w");
-        if (!f) { s_DumpStatus = "Failed to write: dump_classes.txt"; return false; }
-
-        static const char* kFullClasses[] = {
-            "EnemyController", "Paused", "Days", "MainMenu", "ColorToyCapsule",
-            "VersionControl", "HE_Spawn", "Menu_Seed", "Lava", "Elevator", "PlayerStatus"
-        };
-
-        auto typeName = [&](void* t) -> std::string {
-            if (!t || !type_get_name) return "?";
-            char* n = type_get_name(t);
-            return n ? std::string(n) : "?";
-        };
-
-        auto dumpClass = [&](void* klass) {
-            const char* ns = il2cpp_class_get_namespace ? il2cpp_class_get_namespace(klass) : "";
-            const char* cn = il2cpp_class_get_name(klass);
-            std::string parent = "";
-            if (class_get_parent) {
-                void* p = class_get_parent(klass);
-                if (p) parent = std::string(" : ") + il2cpp_class_get_name(p);
-            }
-            fprintf(f, "\n=== class %s%s%s%s ===\n", (ns && *ns) ? ns : "", (ns && *ns) ? "." : "", cn, parent.c_str());
-            void* it = nullptr;
-            while (void* fld = class_get_fields(klass, &it)) {
-                size_t off = il2cpp_field_get_offset ? il2cpp_field_get_offset(fld) : 0;
-                fprintf(f, "  [field] %s %s  // 0x%zx\n", typeName(field_get_type ? field_get_type(fld) : nullptr).c_str(),
-                        field_get_name(fld), off);
-            }
-            it = nullptr;
-            while (void* m = class_get_methods(klass, &it)) {
-                std::string sig;
-                uint32_t pc = method_get_param_count ? method_get_param_count(m) : 0;
-                for (uint32_t i = 0; i < pc; i++) {
-                    if (i) sig += ", ";
-                    sig += typeName(method_get_param ? method_get_param(m, i) : nullptr);
-                }
-                fprintf(f, "  [method] %s %s(%s)\n",
-                        typeName(method_get_return_type ? method_get_return_type(m) : nullptr).c_str(),
-                        method_get_name(m), sig.c_str());
-            }
-        };
-
-        size_t asmCount = 0;
-        const void** asms = il2cpp_domain_get_assemblies(il2cpp_domain_get(), &asmCount);
-        int dumped = 0, hits = 0;
-        fprintf(f, "# dump_classes.txt - Granny Legacy (Assembly-CSharp)\n");
-
-        for (size_t a = 0; a < asmCount; a++) {
-            void* img = il2cpp_assembly_get_image(asms[a]);
-            if (!img) continue;
-            const char* iname = image_get_name(img);
-            if (!iname || strcmp(iname, "Assembly-CSharp.dll") != 0) continue;
-
-            size_t cc = image_get_class_count(img);
-            for (size_t i = 0; i < cc; i++) {
-                void* k = image_get_class(img, i);
-                if (!k) continue;
-                std::string cn = il2cpp_class_get_name(k);
-                for (const char* t : kFullClasses) {
-                    if (cn == t) { dumpClass(k); dumped++; break; }
-                }
-            }
-        }
-
-        fclose(f);
-        char buf[160];
-        snprintf(buf, sizeof(buf), "Done: %d classes dumped. File: dump_classes.txt", dumped);
-        s_DumpStatus = buf;
-        Logger::Log("SPEEDRUN", LOG_OK, "Class dump written: %s", path.c_str());
-        return true;
     }
 
     static const char* kVaseNames[9] = {
@@ -524,14 +434,27 @@ namespace speedrun {
         ImGui::Spacing();
         edited::checkbox("Extra Traps", &extraTraps);
         edited::checkbox("Lava Mode", &lavaMode);
-        ImGui::TextWrapped("%s", "Applied when a run starts. Restart the run after changing.");
         ImGui::EndChild();
 
         ImGui::SameLine(0, colGap);
 
         ImGui::BeginChild("##sr1", ImVec2(colW, colH), false);
-        edited::colortext(ImVec4(1, 1, 1, 1), "RNG Control");
+        edited::colortext(ImVec4(1, 1, 1, 1), "RNG & Spawn Control");
         ImGui::Separator();
+        ImGui::Spacing();
+
+        // Menu Dropdown Granny RNG
+        const auto& gPos = GetAvailableSpawnPos(EntityType::GRANNY);
+        std::vector<const char*> gItems;
+        for (const auto& p : gPos) gItems.push_back(p.name.c_str());
+        edited::combo("Granny Location", &grannySpawnChoice, gItems.data(), gItems.size());
+
+        // Menu Dropdown Grandpa RNG
+        const auto& gpPos = GetAvailableSpawnPos(EntityType::GRANDPA);
+        std::vector<const char*> gpItems;
+        for (const auto& p : gpPos) gpItems.push_back(p.name.c_str());
+        edited::combo("Grandpa Location", &grandpaSpawnChoice, gpItems.data(), gpItems.size());
+
         ImGui::Spacing();
 
         static const char* ratItems[] = { "Random", "Left", "Right" };
@@ -558,17 +481,7 @@ namespace speedrun {
         edited::combo("Grandpa Vase Location", &vaseChoice, s_VasePtrs.data(), (int)s_VasePtrs.size());
 
         ImGui::Spacing();
-        ImGui::TextWrapped("%s", "RNG choices apply 2 seconds after a run starts. Change them, then restart the run.");
-
-        ImGui::Spacing();
-        edited::colortext(ImVec4(1, 1, 1, 1), "Developer Tools");
-        ImGui::Separator();
-        ImGui::Spacing();
-        ImGui::TextWrapped("%s", "Dump Game Classes writes dump_classes.txt to the game data folder. Send it to add the remaining features.");
-        if (edited::buttonn("Dump Game Classes", ImVec2(-1, 38 * sc))) {
-            DumpClasses();
-        }
-        if (!s_DumpStatus.empty()) ImGui::TextWrapped("%s", s_DumpStatus.c_str());
+        ImGui::TextWrapped("%s", "RNG choices apply 1.5 seconds after a run starts. Change them, then restart the run.");
         ImGui::EndChild();
     }
 }
