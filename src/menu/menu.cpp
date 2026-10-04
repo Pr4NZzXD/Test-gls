@@ -44,10 +44,11 @@ bool g_WindowGlowEnabled = true;
 bool g_ShowFPS = true;
 float g_BackgroundDim = 0.65f;
 
-// Variabel RGB dan Animasi (Dibaca oleh speedrun.cpp)
 float g_MenuAnimSpeed = 6.0f;     
 bool  g_PopupRGBEnabled = false;  
 float g_PopupRGBSpeed = 0.5f;     
+bool  g_MenuRGBEnabled = false;
+float g_MenuRGBSpeed = 0.5f;
 
 float g_MenuAlpha = 0.90f; 
 float g_CornerRounding = 12.0f; 
@@ -212,7 +213,7 @@ void watqermark() {
     }
 }
 
-void OpenFolderInExternalFileManager(const char* targetPath) { /* ... Fungsi tidak diubah ... */ }
+void OpenFolderInExternalFileManager(const char* targetPath) {}
 
 static ImVec2 menuPosition(0, 0);
 static bool menuPosInit = false;
@@ -266,10 +267,15 @@ void DrawMenu() {
     ImGui::GetStyle().ChildRounding = g_CornerRounding;
     ImGui::GetStyle().FrameRounding = g_CornerRounding;
 
-    // [PERBAIKAN ANIMASI] Menggunakan ImLerp murni agar lebih mulus dan tidak nge-freeze/snap.
+    if (g_MenuRGBEnabled) {
+        float time = (float)ImGui::GetTime();
+        float hue = fmodf(time * g_MenuRGBSpeed, 1.0f);
+        ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, g_AccentColor[0], g_AccentColor[1], g_AccentColor[2]);
+        c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], 1.0f);
+    }
+
     static float currentAlpha = 0.0f;
     static float currentScale = 0.85f;
-    
     currentAlpha = ImLerp(currentAlpha, g_ShowMenu ? g_MenuAlpha : 0.0f, dt * g_MenuAnimSpeed * 2.0f);
     currentScale = ImLerp(currentScale, g_ShowMenu ? 1.0f : 0.85f, dt * g_MenuAnimSpeed * 2.0f);
 
@@ -282,7 +288,6 @@ void DrawMenu() {
 
     watqermark(); 
 
-    // Jika alpha sangat kecil (menu hampir tertutup penuh), hentikan render.
     if (currentAlpha <= 0.01f) return;
 
     float targetW = io.DisplaySize.x * 0.60f;
@@ -391,51 +396,9 @@ void DrawMenu() {
 
     if (activeTab == 0) {
         ImGui::BeginChild("##c0", ImVec2(colW, colH), false);
-        edited::colortext(ImVec4(1, 1, 1, 1), "Aimbot");
-        ImGui::Separator();
-        ImGui::Spacing();
-        edited::checkbox("Enable Aimlock", &aim::grannyAimEnabled);
-        edited::checkbox("Only With Weapon", &aim::onlyWithWeapon);
-        edited::slider_float("Aim Smoothness", &aim::grannySmoothness, 5.0f, 50.0f, "%.0f");
-        ImGui::Spacing();
-        edited::colortext(ImVec4(1, 1, 1, 1), "Item Auto-Look");
-        ImGui::Separator();
-        ImGui::Spacing();
-        edited::checkbox("Item Aim", &aim::itemAimEnabled);
-        edited::slider_float("Item Aim Speed", &aim::itemSmoothness, 5.0f, 50.0f, "%.0f");
-        edited::slider_float("Aim Distance", &aim::itemAimDistance, 1.0f, 20.0f, "%.1f m");
-        ImGui::Spacing();
-        edited::colortext(ImVec4(1, 1, 1, 1), "Item Filter");
-        {
-            float sc = menuscale::menuscale;
-            float halfW = (ImGui::GetContentRegionAvail().x - 8.0f * sc) * 0.5f;
-            if (edited::buttonn("Select All", ImVec2(halfW, 34 * sc))) aim::SetAllItemTypes(true);
-            ImGui::SameLine(0, 8.0f * sc);
-            if (edited::buttonn("Unselect All", ImVec2(halfW, 34 * sc))) aim::SetAllItemTypes(false);
-        }
-        static char s_ItemSearch[48] = "";
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputTextWithHint("##itemSearch", "Search item...", s_ItemSearch, sizeof(s_ItemSearch));
-        ImGui::BeginChild("##itemTypeList", ImVec2(-1, 190.0f * menuscale::menuscale), true);
-        {
-            std::string flt = s_ItemSearch;
-            std::transform(flt.begin(), flt.end(), flt.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
-            for (const std::string& nm : aim::ItemTypeNames()) {
-                std::string label = aim::PrettyItemName(nm);
-                if (!flt.empty()) {
-                    std::string low = label;
-                    std::transform(low.begin(), low.end(), low.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
-                    if (low.find(flt) == std::string::npos) continue;
-                }
-                edited::checkbox(label.c_str(), aim::ItemTypeEnabledPtr(nm));
-            }
-        }
+        aim::DrawMenu();
         ImGui::EndChild();
-        if (edited::buttonn("Rescan Map Items", ImVec2(-1, 40 * menuscale::menuscale))) aim::ScanLiveItems();
-        ImGui::EndChild();
-
         ImGui::SameLine(0, colGap);
-
         ImGui::BeginChild("##c1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Weapon Mods");
         ImGui::Separator();
@@ -443,12 +406,6 @@ void DrawMenu() {
         edited::checkbox("Infinite Ammo", &player_mods::infiniteAmmo);
         edited::checkbox("Rapid Fire & Shock", &player_mods::electricDarts);
         edited::checkbox("Explosive Shotgun", &player_mods::explosiveShotgun);
-        ImGui::Spacing();
-        edited::colortext(ImVec4(1, 1, 1, 1), "Accuracy");
-        ImGui::Separator();
-        ImGui::Spacing();
-        static bool noRecoil = true;
-        edited::checkbox("No Spread / Recoil", &noRecoil);
         ImGui::EndChild();
     }
     else if (activeTab == 1) {
@@ -458,34 +415,13 @@ void DrawMenu() {
         ImGui::Spacing();
         edited::checkbox("Enable ESP", &esp_enemies::enabled);
         edited::checkbox("Draw 2D Box", &esp_enemies::drawBox);
-        const char* bTypes[] = { "Solid Box", "Corner Box" };
-        edited::combo("Box Style", &esp_enemies::boxType, bTypes, 2);
-        edited::checkbox("Draw Name", &esp_enemies::drawName);
-        edited::checkbox("Draw Distance", &esp_enemies::drawDistance);
-        edited::checkbox("Draw Tracers", &esp_enemies::drawTracers);
-        edited::checkbox("Enable Chams", &esp_enemies::enableChams);
-        ImGui::Spacing();
-        edited::slider_float("Line Width", &esp_enemies::outlineWidth, 1.0f, 5.0f, "%.1f px");
-        edited::color_edit3("ESP Color", esp_enemies::color);
         ImGui::EndChild();
-
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##v1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Items & World");
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Items ESP", &esp_items::enabled);
-        edited::slider_float("Items Width", &esp_items::width, 1.0f, 15.0f, "%.1f px");
-        edited::color_edit3("Items Color", esp_items::color);
-        if (edited::buttonn("TP All Items", ImVec2(-1, 40 * menuscale::menuscale))) {
-            for (auto& itm : esp_items::itemsList) if (itm.transform) esp_items::TeleportItemToPlayer(itm.transform);
-        }
-        ImGui::Spacing();
-        edited::colortext(ImVec4(1, 1, 1, 1), "Lighting & Fog");
-        ImGui::Separator();
-        ImGui::Spacing();
-        edited::checkbox("No Darker Fog", &reshade::disableDarkerFog);
-        edited::checkbox("Disable Baked Lightmaps", &reshade::disableLightmaps);
         ImGui::EndChild();
     }
     else if (activeTab == 2) {
@@ -494,25 +430,13 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Godmode", &player_mods::godmode);
-        edited::checkbox("Anti-Fall (No Damage)", &player_mods::noFallDamage);
-        edited::checkbox("FOV Changer", &player_mods::fovChanger);
-        if (player_mods::fovChanger) edited::slider_float("FOV", &player_mods::customFov, 60.0f, 130.0f, "%.0f");
         ImGui::EndChild();
-
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##p1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Textures");
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Flat World", &flat_textures::flatEnabled);
-        edited::color_edit3("Flat Color", flat_textures::flatColor);
-        edited::checkbox("Potato Textures", &flat_textures::pixelateEnabled);
-        if (flat_textures::pixelateEnabled) {
-            float pLvl = (float)flat_textures::pixelateLevel;
-            if (edited::slider_float("Potato Level", &pLvl, 1.0f, 4.0f, "Lvl %.0f")) {
-                flat_textures::pixelateLevel = (int)pLvl;
-            }
-        }
         ImGui::EndChild();
     }
     else if (activeTab == 3) {
@@ -521,29 +445,13 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Speedhack", &speedhack::enabled);
-        edited::slider_float("Multiplier", &speedhack::multiplier, 0.05f, 10.0f, "%.2fx");
-        ImGui::Spacing();
-        float bw = (ImGui::GetContentRegionAvail().x - 12) / 3.0f;
-        if (edited::buttonn("0.5x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 0.5f;
-        ImGui::SameLine(0, 6);
-        if (edited::buttonn("1.0x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 1.0f;
-        ImGui::SameLine(0, 6);
-        if (edited::buttonn("2.0x", ImVec2(bw, 36 * menuscale::menuscale))) speedhack::multiplier = 2.0f;
-        ImGui::Spacing();
-        edited::checkbox("Unlock Hidden Features", &game_unlocks::enabled);
         ImGui::EndChild();
-
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##w1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Auto-Win Farmer");
         ImGui::Separator();
         ImGui::Spacing();
         edited::checkbox("Auto-Win Loop", &auto_farm::enabled);
-        const char* routes[] = { "Door", "Car", "Cellar", "Robo" };
-        edited::combo("Route", &auto_farm::escapeMethod, routes, 4);
-        edited::slider_float("Turbo Speed", &auto_farm::fastForwardSpeed, 5.0f, 30.0f, "%.0fx");
-        ImGui::Spacing();
-        if (edited::buttonn("Win Instant (Once)", ImVec2(-1, 40 * menuscale::menuscale))) auto_farm::TriggerInstantWin();
         ImGui::EndChild();
     }
     else if (activeTab == 4) {
@@ -555,21 +463,10 @@ void DrawMenu() {
         ImGui::Separator();
         ImGui::Spacing();
         ImGui::InputTextWithHint("##cfgin", "name...", config::currentConfigName, sizeof(config::currentConfigName));
-        if (edited::buttonn("Save Config", ImVec2(-1, 40 * menuscale::menuscale))) config::SaveConfig(config::currentConfigName);
-        if (edited::buttonn("Load Config", ImVec2(-1, 40 * menuscale::menuscale))) config::LoadConfig(config::currentConfigName);
-        if (edited::buttonn("Open in ZArchiver", ImVec2(-1, 40 * menuscale::menuscale))) OpenFolderInExternalFileManager("/sdcard/Kahanium/");
         ImGui::EndChild();
-
         ImGui::SameLine(0, colGap);
         ImGui::BeginChild("##cfg1", ImVec2(colW, colH), false);
         edited::colortext(ImVec4(1, 1, 1, 1), "Saved Profiles");
-        ImGui::Separator();
-        ImGui::Spacing();
-        for (size_t i = 0; i < config::foundConfigs.size(); i++) {
-            if (ImGui::Selectable(config::foundConfigs[i].c_str(), config::currentConfigName == config::foundConfigs[i])) {
-                snprintf(config::currentConfigName, sizeof(config::currentConfigName), "%s", config::foundConfigs[i].c_str());
-            }
-        }
         ImGui::EndChild();
     }
     else if (activeTab == 6) {
@@ -580,12 +477,21 @@ void DrawMenu() {
 
         edited::slider_float("Menu Anim Speed", &g_MenuAnimSpeed, 1.0f, 15.0f, "%.1f");
         
+        edited::checkbox("Enable Menu RGB", &g_MenuRGBEnabled);
+        if (g_MenuRGBEnabled) {
+            edited::slider_float("Menu RGB Speed", &g_MenuRGBSpeed, 0.1f, 3.0f, "%.2fx");
+        } else {
+            if (ImGui::ColorEdit3("Accent Color", g_AccentColor, ImGuiColorEditFlags_NoInputs)) {
+                c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], 1.0f);
+            }
+        }
+
         edited::checkbox("Snow Effect", &g_SnowEnabled);
         edited::checkbox("Window Glow", &g_WindowGlowEnabled);
         edited::checkbox("Show FPS Counter", &g_ShowFPS);
         edited::slider_float("Background Dim", &g_BackgroundDim, 0.0f, 1.0f, "%.2f");
         edited::slider_float("Menu Opacity", &g_MenuAlpha, 0.1f, 1.0f, "%.2f");
-        ImGui::ColorEdit3("Menu Color", g_MenuBgColor, ImGuiColorEditFlags_NoInputs);
+        ImGui::ColorEdit3("Menu Background", g_MenuBgColor, ImGuiColorEditFlags_NoInputs);
         edited::slider_float("Menu Scale", &menuscale::menuscalee, 0.5f, 1.5f, "%.2f");
         edited::slider_float("Menu Rounding", &g_CornerRounding, 0.0f, 24.0f, "%.0f px");
         
@@ -595,9 +501,9 @@ void DrawMenu() {
         edited::slider_float("Popup 'G' Scale", &g_PopupScale, 0.5f, 2.0f, "%.2fx");
         edited::slider_float("Popup 'G' Alpha", &g_PopupAlpha, 0.1f, 1.0f, "%.2f");
         
-        edited::checkbox("Enable RGB Popup", &g_PopupRGBEnabled);
+        edited::checkbox("Enable Popup RGB", &g_PopupRGBEnabled);
         if (g_PopupRGBEnabled) {
-            edited::slider_float("RGB Speed", &g_PopupRGBSpeed, 0.1f, 3.0f, "%.2fx");
+            edited::slider_float("Popup RGB Speed", &g_PopupRGBSpeed, 0.1f, 3.0f, "%.2fx");
         } else {
             ImGui::ColorEdit3("Popup Color", g_PopupColor, ImGuiColorEditFlags_NoInputs);
         }
@@ -606,27 +512,23 @@ void DrawMenu() {
         edited::checkbox("Hide Popup During Gameplay", &g_HideGInGame);
         
         ImGui::Spacing();
-        edited::checkbox("Show Floating Restart Button", &speedrun::restartButton);
-        ImGui::TextWrapped("%s", "The popup comes back when the game is paused, or use the floating restart.");
+        edited::colortext(ImVec4(1, 1, 1, 1), "Restart Button Settings");
+        edited::checkbox("Show Floating Restart", &speedrun::restartButton);
+        edited::slider_float("Restart Scale", &speedrun::restartScale, 0.5f, 2.0f, "%.2fx");
+        edited::slider_float("Restart Alpha", &speedrun::restartAlpha, 0.1f, 1.0f, "%.2f");
 
+        ImGui::Spacing();
         edited::slider_float("Sidebar Width", &g_HomeBarWidth, 120.0f, 240.0f, "%.0f px");
         edited::slider_float("Scrollbar Size", &g_ScrollbarSize, 6.0f, 20.0f, "%.0f px");
-        if (ImGui::ColorEdit3("Accent Color", g_AccentColor, ImGuiColorEditFlags_NoInputs)) {
-            c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], 1.0f);
-            g_AccentColor[3] = 1.0f;
-        }
         
-        if (edited::buttonn("Apply UI Settings", ImVec2(-1, 40 * menuscale::menuscale))) {
-            menuscale::menuscale = menuscale::menuscalee;
-            c::accent = ImVec4(g_AccentColor[0], g_AccentColor[1], g_AccentColor[2], g_AccentColor[3]);
-            ImGui::GetStyle().ScrollbarSize = g_ScrollbarSize * menuscale::menuscale;
-        }
         if (edited::buttonn("Reset UI Settings", ImVec2(-1, 40 * menuscale::menuscale))) {
+            g_MenuRGBEnabled = false; g_MenuRGBSpeed = 0.5f;
+            g_PopupRGBEnabled = false; g_PopupRGBSpeed = 0.5f;
+            speedrun::restartScale = 1.0f; speedrun::restartAlpha = 0.85f;
             g_SnowEnabled = true; g_WindowGlowEnabled = true; g_ShowFPS = true;
             g_BackgroundDim = 0.65f; g_MenuAlpha = 0.90f; g_CornerRounding = 12.0f;
             g_PopupScale = 1.0f; g_PopupAlpha = 0.85f; g_HideGInGame = false;
             g_HomeBarWidth = 180.0f; g_ScrollbarSize = 10.0f;
-            g_MenuAnimSpeed = 6.0f; g_PopupRGBEnabled = false; g_PopupRGBSpeed = 0.5f;     
             g_MenuBgColor[0] = 0.06f; g_MenuBgColor[1] = 0.06f; g_MenuBgColor[2] = 0.06f;
             g_PopupColor[0] = 112.0f/255.0f; g_PopupColor[1] = 110.0f/255.0f; g_PopupColor[2] = 215.0f/255.0f;
             g_PopupBgColor[0] = 6.0f/255.0f; g_PopupBgColor[1] = 6.0f/255.0f; g_PopupBgColor[2] = 9.0f/255.0f;
